@@ -1,6 +1,6 @@
-# FX Structuring Client-Idea Relevance Engine (MVP)
+# Idea Relevance Engine (MVP)
 
-Streamlit + SQLite MVP for semantic matching between FX/rates/bonds ideas and clients.
+Streamlit + SQLite MVP for semantic matching of ideas.
 
 ## What It Does
 - Job A: `client -> ranked ideas`
@@ -46,4 +46,4 @@ pytest -q
 ## Notes
 - Database file is created at `data/client_categorizer.db`.
 - Taxonomy and synonym seed data are loaded idempotently.
-- Manual tag overrides are supported in UI for clients and ideas.
+- Manual tag overrides are supported in UI.
