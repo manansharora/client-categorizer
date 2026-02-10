@@ -1,0 +1,47 @@
+from pathlib import Path
+
+
+ROOT_DIR = Path(__file__).resolve().parent.parent
+DATA_DIR = ROOT_DIR / "data"
+DEFAULT_DB_PATH = DATA_DIR / "client_categorizer.db"
+
+
+CLIENT_TYPES = [
+    "BANK",
+    "HF_MACRO",
+    "HF_RELVAL",
+    "HF_SYSTEMATIC",
+    "ASSET_MANAGER_LONG_ONLY",
+    "ASSET_MANAGER_MULTI_ASSET",
+    "PENSION_INSURANCE",
+    "CORPORATE_TREASURY",
+    "OFFICIAL_SOVEREIGN",
+]
+
+OBSERVATION_TYPES = ["CALL_NOTE", "TRADE_NOTE", "PREFERENCE_NOTE"]
+FEEDBACK_LABELS = ["USEFUL", "NOT_USEFUL", "CONTACTED", "TRADED"]
+
+
+BASE_FAMILY_WEIGHTS = {
+    "PRODUCT": 0.30,
+    "INTENT": 0.25,
+    "THEME": 0.20,
+    "RISK": 0.10,
+    "TENOR": 0.10,
+    "MARKET": 0.05,
+}
+
+MATCH_WEIGHTS = {
+    "semantic": 0.45,
+    "lexical": 0.35,
+    "taxonomy": 0.20,
+}
+
+SIGNAL_WEIGHTS = {
+    "TRADE_NOTE": 1.0,
+    "CALL_NOTE": 0.8,
+    "PREFERENCE_NOTE": 0.7,
+}
+
+RECENCY_HALFLIFE_DAYS = 180.0
+

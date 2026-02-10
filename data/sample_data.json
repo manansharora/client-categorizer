@@ -1,0 +1,116 @@
+{
+  "clients": [
+    {
+      "client_name": "Atlas AM",
+      "client_type": "ASSET_MANAGER_LONG_ONLY",
+      "observations": [
+        {
+          "obs_type": "TRADE_NOTE",
+          "obs_text": "Prefers simple G10 hedges. Discussed 3m USDJPY hedging using vanilla options and collars; dislikes complex path dependent payoffs.",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.9
+        },
+        {
+          "obs_type": "CALL_NOTE",
+          "obs_text": "Interested in central bank event risk; willing to pay premium for downside protection, but wants clear worst-case outcomes.",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.8
+        }
+      ]
+    },
+    {
+      "client_name": "Borealis Macro HF",
+      "client_type": "HF_MACRO",
+      "observations": [
+        {
+          "obs_type": "CALL_NOTE",
+          "obs_text": "Likes directional views around policy divergence and macro data (CPI, NFP). Talks carry and relative value across EM and G10.",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.85
+        },
+        {
+          "obs_type": "TRADE_NOTE",
+          "obs_text": "Discussed EM LATAM carry basket and opportunistic hedges; open to structures if payoff is intuitive.",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.8
+        }
+      ]
+    },
+    {
+      "client_name": "Cedar Rates RV HF",
+      "client_type": "HF_RELVAL",
+      "observations": [
+        {
+          "obs_type": "CALL_NOTE",
+          "obs_text": "Focus on USD rates relative value and curve expression. Interested in steepeners/flatteners and rates options (swaptions).",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.85
+        }
+      ]
+    },
+    {
+      "client_name": "Delta Treasury Corp",
+      "client_type": "CORPORATE_TREASURY",
+      "observations": [
+        {
+          "obs_type": "PREFERENCE_NOTE",
+          "obs_text": "Needs hedging solutions in G10 FX; prefers simple structures and avoids leverage. Tenor often 1m to 3m.",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.9
+        }
+      ]
+    },
+    {
+      "client_name": "Eclipse Multi-Asset AM",
+      "client_type": "ASSET_MANAGER_MULTI_ASSET",
+      "observations": [
+        {
+          "obs_type": "CALL_NOTE",
+          "obs_text": "Interested in yield enhancement but cautious on drawdowns. Likes defined-risk FX vol structures (risk reversals, seagulls).",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.8
+        }
+      ]
+    },
+    {
+      "client_name": "Fjord Systematic HF",
+      "client_type": "HF_SYSTEMATIC",
+      "observations": [
+        {
+          "obs_type": "CALL_NOTE",
+          "obs_text": "Fast decision process. Trades carry and volatility signals; will look at systematic FX vol structures and simple directional expressions.",
+          "obs_date": "2026-02-10",
+          "source_confidence": 0.8
+        }
+      ]
+    }
+  ],
+  "ideas": [
+    {
+      "idea_title": "3m G10 KO Hedge for Central Bank Risk",
+      "idea_text": "Idea: 3m KO option structure to hedge G10 FX downside around central bank meetings. Designed for simple worst-case and defined payoff.",
+      "created_by": "sample"
+    },
+    {
+      "idea_title": "EM LATAM Carry Basket with Defined Risk Overlay",
+      "idea_text": "Idea: EM LATAM carry basket expression with hedging overlay for drawdown sensitivity. Emphasis on carry with controlled tail risk.",
+      "created_by": "sample"
+    },
+    {
+      "idea_title": "USD Rates Curve Expression via Swaptions",
+      "idea_text": "Idea: USD rates curve steepener expressed using rates options (swaptions) to capture convexity with defined premium.",
+      "created_by": "sample"
+    },
+    {
+      "idea_title": "G10 Vanilla Collar for Corporate Hedging",
+      "idea_text": "Idea: simple G10 vanilla option collar for hedging FX exposure. Tenor 1m to 3m, avoids leverage and complex path dependence.",
+      "created_by": "sample"
+    },
+    {
+      "idea_title": "FX Vol Structure: Risk Reversal into Event Window",
+      "idea_text": "Idea: FX vol structure using risk reversal into a macro data window (CPI / NFP). Expression of volatility view with defined downside premium.",
+      "created_by": "sample"
+    }
+  ]
+}
+
