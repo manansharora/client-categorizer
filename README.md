@@ -43,6 +43,18 @@ python -m streamlit run app.py
 pytest -q
 ```
 
+## Ingest Trade CSV
+Use this when you have columns like `Trade`, `Sales Feedback`, `Client`, `Created By`.
+
+```bash
+python scripts/ingest_trade_csv.py --csv path\to\your_file.csv
+```
+
+Optional flags:
+- `--db path\to\db.sqlite`
+- `--default-client-type BANK`
+- `--observation-type CALL_NOTE`
+
 ## Notes
 - Database file is created at `data/client_categorizer.db`.
 - Taxonomy and synonym seed data are loaded idempotently.
