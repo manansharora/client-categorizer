@@ -14,9 +14,11 @@ if str(ROOT) not in sys.path:
 
 from core.constants import DEFAULT_DB_PATH
 from core.database import initialize_database
+from core.logging_utils import get_logger
 from scripts.ingest_pm_csv import ingest_pm_csv
 from scripts.ingest_rfq_csv import ingest_rfq_csv
 from scripts.ingest_trade_csv import ingest_trade_csv
+logger = get_logger("reset_and_rebuild")
 
 
 def _backup_db(db_path: Path) -> Path | None:
@@ -48,6 +50,13 @@ def main() -> None:
 
     db_path = Path(args.db)
     start = time.time()
+    logger.info(
+        "reset_rebuild_start db=%s rfq=%s trade=%s pm=%s",
+        db_path,
+        args.rfq_csv,
+        args.trade_csv,
+        args.pm_csv,
+    )
 
     backup_path = None
     if not args.no_backup:
@@ -76,8 +85,15 @@ def main() -> None:
     if pm_stats:
         print(f"PM stats: {pm_stats}")
     print(f"Elapsed seconds: {elapsed:.2f}")
+    logger.info(
+        "reset_rebuild_done elapsed=%.2f rfq=%s trade=%s pm=%s backup=%s",
+        elapsed,
+        rfq_stats,
+        trade_stats,
+        pm_stats,
+        backup_path,
+    )
 
 
 if __name__ == "__main__":
     main()
-

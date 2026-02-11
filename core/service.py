@@ -6,6 +6,7 @@ from typing import Any
 
 from core.constants import MATCH_CLIENT_CANDIDATE_CAP, MATCH_CLIENT_FALLBACK_MIN, MATCH_PM_CAP
 from core.features import FastTextEmbedder, bm25_score_documents, min_max_scale
+from core.logging_utils import get_logger
 from core.matching import adjusted_family_weights, tags_to_family_map, taxonomy_overlap_score, top_matching_terms
 from core.profiles import weighted_text_from_observations
 from core.repository import Repository
@@ -30,6 +31,7 @@ def _weighted_sum(values: dict[str, float]) -> float:
 class ClientCategorizerService:
     def __init__(self, repo: Repository):
         self.repo = repo
+        self.logger = get_logger("service")
         self._taxonomy_rows: list[dict[str, Any]] = []
         self._synonym_rows: list[dict[str, Any]] = []
         self._synonym_map: dict[str, str] = {}
@@ -168,6 +170,18 @@ class ClientCategorizerService:
 
         candidates: dict[int, dict[str, Any]] = {}
         used_regions: list[str] = []
+        debug_attempts: list[dict[str, Any]] = []
+
+        self.logger.info(
+            "candidate_search_start region=%s country=%s pair=%s product=%s tenor=%s cap=%s fallback_min=%s",
+            target_region,
+            target_country,
+            pair,
+            product,
+            tenor,
+            cap,
+            fallback_min,
+        )
 
         for idx, reg in enumerate(regions_to_try):
             region_penalty = 1.0 if idx == 0 else 0.85
@@ -183,6 +197,15 @@ class ClientCategorizerService:
                     product_type=product or None,
                     tenor_bucket=tenor or None,
                     limit=cap,
+                )
+                debug_attempts.append(
+                    {
+                        "region": reg,
+                        "stage": ",".join(stage),
+                        "strict_region": idx == 0,
+                        "row_count": len(rows),
+                        "country_filter": target_country if idx == 0 else "",
+                    }
                 )
                 for row in rows:
                     client_id = int(row["entity_id"])
@@ -205,13 +228,29 @@ class ClientCategorizerService:
             if idx == 0 and len(candidates) >= fallback_min:
                 break
 
+        empty_reason = ""
+        if not candidates:
+            empty_reason = (
+                "No candidates from RFQ aggregate features for provided region/country/signals. "
+                "Try broader region/country or ensure idea has pair/product terms present in RFQ data."
+            )
+            self.logger.warning("candidate_search_empty attempts=%s", debug_attempts)
+
         metadata = {
             "target_region": target_region,
             "target_country": target_country,
             "used_regions": used_regions,
             "fallback_used": len(used_regions) > 1,
             "signals": signals,
+            "debug": debug_attempts,
+            "empty_reason": empty_reason,
         }
+        self.logger.info(
+            "candidate_search_done candidates=%s fallback_used=%s used_regions=%s",
+            len(candidates),
+            metadata["fallback_used"],
+            used_regions,
+        )
         return candidates, metadata
 
     def _extract_explanation(
@@ -361,6 +400,7 @@ class ClientCategorizerService:
         profiles = self._build_profiles_for_client_ids(candidate_ids)
         if not profiles:
             run_id = self.repo.create_match_run("JOB_B", input_ref or (f"idea:{idea_id}" if idea_id else "adhoc"))
+            self.logger.warning("match_clients_no_profiles input_ref=%s meta=%s", input_ref, meta)
             return run_id, [], meta
 
         docs = [p.text for p in profiles]
@@ -421,6 +461,14 @@ class ClientCategorizerService:
 
         run_id = self.repo.create_match_run("JOB_B", input_ref or (f"idea:{idea_id}" if idea_id else "adhoc"))
         self.repo.add_match_results(run_id, "CLIENT", results)
+        self.logger.info(
+            "match_clients_done run_id=%s candidates=%s returned=%s region=%s country=%s",
+            run_id,
+            len(candidate_ids),
+            len(results),
+            region,
+            country,
+        )
         return run_id, results, meta
 
     def match_ideas_for_client(

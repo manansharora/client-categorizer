@@ -4,6 +4,9 @@ from pathlib import Path
 ROOT_DIR = Path(__file__).resolve().parent.parent
 DATA_DIR = ROOT_DIR / "data"
 DEFAULT_DB_PATH = DATA_DIR / "client_categorizer.db"
+LOG_DIR = ROOT_DIR / "logs"
+DEFAULT_LOG_PATH = LOG_DIR / "client_categorizer.log"
+DEFAULT_FASTTEXT_MODEL_PATH = DATA_DIR / "fasttext.model"
 
 
 CLIENT_TYPES = [

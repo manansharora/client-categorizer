@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.database import initialize_database
+from core.logging_utils import get_logger
 from core.repository import Repository
 from core.rfq import (
     normalize_ccy_pair,
@@ -23,6 +24,7 @@ from core.rfq import (
     normalize_tenor_bucket,
     parse_trade_date,
 )
+logger = get_logger("ingest_pm_csv")
 
 
 def _normalize_key(value: str) -> str:
@@ -60,6 +62,7 @@ def ingest_pm_csv(csv_path: Path, db_path: str | None = None, clear_existing_pm_
     agg_map: dict[tuple[str, int, str, str, str, str | None, str | None, str | None], dict[str, Any]] = {}
     profile_texts: dict[int, list[str]] = {}
 
+    logger.info("pm_ingest_start file=%s clear_existing_pm_features=%s", csv_path, clear_existing_pm_features)
     with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
         reader = csv.DictReader(handle)
         if not reader.fieldnames:
@@ -178,6 +181,15 @@ def ingest_pm_csv(csv_path: Path, db_path: str | None = None, clear_existing_pm_
         repo.upsert_entity_profile_cache("PM", pm_id, profile_text)
 
     conn.close()
+    logger.info(
+        "pm_ingest_done read=%s valid=%s skipped=%s pms_created=%s pm_obs=%s pm_features=%s",
+        rows_read,
+        rows_valid,
+        rows_skipped,
+        pms_created,
+        obs_created,
+        len(feature_rows),
+    )
     return {
         "rows_read": rows_read,
         "rows_valid": rows_valid,
@@ -205,4 +217,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

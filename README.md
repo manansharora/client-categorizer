@@ -87,9 +87,25 @@ This wipes/recreates the DB, ingests RFQ first (canonical client names), then op
 python scripts/reset_and_rebuild_from_rfq.py --rfq-csv path\to\rfq_file.csv --trade-csv path\to\trade_file.csv --pm-csv path\to\pm_file.csv
 ```
 
+## Retrain FastText Semantic Model
+Train a persistent FastText model from current DB corpus (client/PM profiles, ideas, observations):
+
+```bash
+python scripts/retrain_semantic_model.py --epochs 30
+```
+
+Optional flags:
+- `--db path\to\db.sqlite`
+- `--model-path path\to\fasttext.model`
+
 ## Notes
 - Database file is created at `data/client_categorizer.db`.
 - Taxonomy and synonym seed data are loaded idempotently.
 - Manual tag overrides are supported in UI.
 - Matching uses region-first candidate retrieval with fallback expansion.
-- Fast semantic mode is default (no per-query FastText training). Set `CLIENT_CATEGORIZER_FASTTEXT_TRAIN=1` to enable training.
+- Debug logs are written to `logs/client_categorizer.log`.
+- FastText training is disabled by default at query time.
+- Query-time semantic behavior:
+- If `data/fasttext.model` exists, it is loaded and used.
+- Otherwise, fallback hash embeddings are used.
+- To force per-query FastText retraining (not recommended for latency), set `CLIENT_CATEGORIZER_FASTTEXT_TRAIN=1`.

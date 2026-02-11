@@ -8,6 +8,7 @@ import streamlit as st
 
 from core.constants import CLIENT_TYPES, FEEDBACK_LABELS, OBSERVATION_TYPES, REGIONS
 from core.database import initialize_database
+from core.logging_utils import get_logger
 from core.repository import Repository
 from core.service import ClientCategorizerService
 
@@ -28,6 +29,7 @@ def get_service() -> tuple[Repository, ClientCategorizerService]:
 
 
 repo, service = get_service()
+logger = get_logger("app")
 
 
 def _rows_to_df(rows: list) -> pd.DataFrame:
@@ -249,6 +251,13 @@ def page_match_clients_for_idea() -> None:
                 country=target_country.strip() or None,
             )
             st.session_state["last_job_b"] = {"run_id": run_id, "results": results, "meta": meta}
+            logger.info(
+                "ui_match_clients run_id=%s results=%s region=%s country=%s",
+                run_id,
+                len(results),
+                target_region,
+                target_country.strip() or "",
+            )
             st.success(f"Matching complete. Run ID: {run_id}")
 
     payload = st.session_state.get("last_job_b")
@@ -261,6 +270,10 @@ def page_match_clients_for_idea() -> None:
                 f"Region target: {meta.get('target_region')} | Country: {meta.get('target_country') or 'N/A'} | "
                 f"Fallback used: {meta.get('fallback_used')}"
             )
+            if meta.get("empty_reason") and not results:
+                st.warning(meta.get("empty_reason"))
+            with st.expander("Debug details"):
+                st.json(meta.get("debug", []))
         table_rows = [
             {
                 "target_name": r["target_name"],

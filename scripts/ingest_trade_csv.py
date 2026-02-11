@@ -14,8 +14,10 @@ if str(ROOT) not in sys.path:
 
 from core.constants import CLIENT_TYPES
 from core.database import initialize_database
+from core.logging_utils import get_logger
 from core.repository import Repository
 from core.service import ClientCategorizerService
+logger = get_logger("ingest_trade_csv")
 
 
 def _normalize_key(value: str) -> str:
@@ -102,6 +104,7 @@ def ingest_trade_csv(
     touched_clients: set[int] = set()
 
     with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
+        logger.info("trade_ingest_start file=%s", csv_path)
         reader = csv.DictReader(handle)
         if not reader.fieldnames:
             raise ValueError("CSV has no header row.")
@@ -167,6 +170,7 @@ def ingest_trade_csv(
         service.refresh_client_tags_from_observations(client_id)
 
     conn.close()
+    logger.info("trade_ingest_done stats=%s", counters)
     return counters
 
 

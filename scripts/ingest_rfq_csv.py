@@ -16,6 +16,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from core.database import initialize_database
+from core.logging_utils import get_logger
 from core.repository import Repository
 from core.rfq import (
     infer_client_type_from_sector,
@@ -36,6 +37,7 @@ REQUIRED_COLUMNS = [
     "productType",
     "date",
 ]
+logger = get_logger("ingest_rfq_csv")
 
 
 @dataclass
@@ -132,6 +134,7 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
     profile_buckets: dict[int, list[tuple[tuple[Any, ...], Agg]]] = defaultdict(list)
 
     try:
+        logger.info("rfq_ingest_start file=%s clear_existing=%s", csv_path, clear_existing)
         with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle)
             _ensure_headers(reader.fieldnames)
@@ -236,6 +239,15 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
             error_summary=None,
         )
         conn.close()
+        logger.info(
+            "rfq_ingest_done run_id=%s read=%s valid=%s skipped=%s clients_created=%s features=%s",
+            run_id,
+            rows_read,
+            rows_valid,
+            rows_skipped,
+            clients_created,
+            len(upsert_rows),
+        )
         return {
             "run_id": run_id,
             "rows_read": rows_read,
@@ -245,6 +257,7 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
             "features_upserted": len(upsert_rows),
         }
     except Exception as exc:
+        logger.exception("rfq_ingest_failed run_id=%s file=%s", run_id, csv_path)
         repo.update_rfq_ingest_run(
             run_id=run_id,
             status="FAILED",
@@ -278,4 +291,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

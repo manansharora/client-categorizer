@@ -1,10 +1,12 @@
 import hashlib
 import os
+from pathlib import Path
 from collections.abc import Iterable
 
 import numpy as np
 from rank_bm25 import BM25Okapi
 
+from core.constants import DEFAULT_FASTTEXT_MODEL_PATH
 from core.text_processing import tokenize
 
 try:
@@ -53,6 +55,7 @@ class FastTextEmbedder:
         epochs: int = 25,
         fallback_dim: int = 128,
         enable_training: bool | None = None,
+        model_path: str | None = None,
     ):
         self.vector_size = vector_size
         self.window = window
@@ -63,11 +66,22 @@ class FastTextEmbedder:
             env_value = os.getenv("CLIENT_CATEGORIZER_FASTTEXT_TRAIN", "").strip().lower()
             enable_training = env_value in {"1", "true", "yes"}
         self.enable_training = bool(enable_training)
+        if model_path is None:
+            model_path = os.getenv("CLIENT_CATEGORIZER_FASTTEXT_MODEL_PATH", str(DEFAULT_FASTTEXT_MODEL_PATH))
+        self.model_path = Path(model_path) if model_path else None
         self.model = None
+        self._load_model_if_present()
+
+    def _load_model_if_present(self) -> None:
+        if self.model_path is None or not self.model_path.exists() or FastText is None:
+            return
+        try:
+            self.model = FastText.load(str(self.model_path))
+        except Exception:
+            self.model = None
 
     def fit(self, texts: Iterable[str]) -> None:
         if not self.enable_training:
-            self.model = None
             return
         tokenized = [tokenize(text) for text in texts if text and tokenize(text)]
         if FastText is not None and len(tokenized) >= 2:
@@ -81,6 +95,9 @@ class FastTextEmbedder:
             model.build_vocab(corpus_iterable=tokenized)
             model.train(corpus_iterable=tokenized, total_examples=len(tokenized), epochs=self.epochs)
             self.model = model
+            if self.model_path is not None:
+                self.model_path.parent.mkdir(parents=True, exist_ok=True)
+                model.save(str(self.model_path))
         else:
             self.model = None
 

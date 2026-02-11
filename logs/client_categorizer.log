@@ -1,0 +1,11 @@
+2026-02-11 21:14:43 INFO client_categorizer.ingest_pm_csv pm_ingest_start file=C:\Users\manan\AppData\Local\Temp\pytest-of-manan\pytest-8\test_ingest_pm_csv_creates_pm_0\pm.csv clear_existing_pm_features=True
+2026-02-11 21:14:43 INFO client_categorizer.ingest_pm_csv pm_ingest_done read=1 valid=1 skipped=0 pms_created=1 pm_obs=1 pm_features=3
+2026-02-11 21:14:43 INFO client_categorizer.ingest_rfq_csv rfq_ingest_start file=C:\Users\manan\AppData\Local\Temp\pytest-of-manan\pytest-8\test_ingest_rfq_csv_builds_agg0\rfq.csv clear_existing=True
+2026-02-11 21:14:43 INFO client_categorizer.ingest_rfq_csv rfq_ingest_done run_id=1 read=2 valid=2 skipped=0 clients_created=2 features=10
+2026-02-11 21:14:43 INFO client_categorizer.ingest_trade_csv trade_ingest_start file=C:\Users\manan\AppData\Local\Temp\pytest-of-manan\pytest-8\test_ingest_trade_csv_end_to_e0\trades.csv
+2026-02-11 21:14:43 INFO client_categorizer.ingest_trade_csv trade_ingest_done stats={'rows_processed': 2, 'ideas_created': 2, 'ideas_updated': 0, 'clients_created': 3, 'observations_created': 4}
+2026-02-11 21:14:43 INFO client_categorizer.ingest_trade_csv trade_ingest_start file=C:\Users\manan\AppData\Local\Temp\pytest-of-manan\pytest-8\test_ingest_trade_csv_end_to_e0\trades.csv
+2026-02-11 21:14:43 INFO client_categorizer.ingest_trade_csv trade_ingest_done stats={'rows_processed': 2, 'ideas_created': 0, 'ideas_updated': 2, 'clients_created': 0, 'observations_created': 0}
+2026-02-11 21:14:43 INFO client_categorizer.service candidate_search_start region=EUROPE country=None pair=EURUSD product= tenor= cap=400 fallback_min=20
+2026-02-11 21:14:43 INFO client_categorizer.service candidate_search_done candidates=1 fallback_used=True used_regions=['EUROPE', 'APAC', 'AMERICA', 'CEEMEA']
+2026-02-11 21:14:43 INFO client_categorizer.service match_clients_done run_id=1 candidates=1 returned=1 region=EUROPE country=None
