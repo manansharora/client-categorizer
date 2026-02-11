@@ -33,22 +33,64 @@ def test_job_b_and_job_a_end_to_end(tmp_path) -> None:
     service.auto_tag_observation(obs2, "Client likes directional carry in EM LATAM")
     service.refresh_client_tags_from_observations(c1)
     service.refresh_client_tags_from_observations(c2)
+    repo.upsert_entity_profile_cache("CLIENT", c1, "EURUSD KO central bank hedge")
+    repo.upsert_entity_profile_cache("CLIENT", c2, "EMLATAM carry directional")
+    repo.upsert_rfq_features_bulk(
+        [
+            (
+                "CLIENT",
+                c1,
+                "EUROPE",
+                "UNITED KINGDOM",
+                "PAIR_PRODUCT",
+                "EURUSD",
+                "KO",
+                None,
+                12,
+                100.0,
+                date.today().isoformat(),
+                5.0,
+                8.0,
+                12.0,
+                7.0,
+            ),
+            (
+                "CLIENT",
+                c2,
+                "EUROPE",
+                "UNITED KINGDOM",
+                "PAIR_PRODUCT",
+                "USDBRL",
+                "KNO",
+                None,
+                8,
+                80.0,
+                date.today().isoformat(),
+                2.0,
+                4.0,
+                8.0,
+                3.0,
+            ),
+        ]
+    )
 
     idea_id = repo.create_idea(
         "CB KO Hedge",
-        "Idea: 3m KO structure for G10 central bank volatility event",
+        "Idea: EURUSD KO structure for Europe central bank volatility event",
         "tester",
     )
-    service.auto_tag_idea(idea_id, "Idea: 3m KO structure for G10 central bank volatility event")
+    service.auto_tag_idea(idea_id, "Idea: EURUSD KO structure for Europe central bank volatility event")
 
-    run_b, results_b = service.match_clients_for_idea(
-        idea_text="3m KO structure for G10 central bank risk",
+    run_b, results_b, meta_b = service.match_clients_for_idea(
+        idea_text="EURUSD KO structure for Europe central bank risk",
         idea_id=idea_id,
         input_ref="test_job_b",
         top_n=5,
+        region="EUROPE",
     )
     assert run_b > 0
-    assert len(results_b) >= 2
+    assert meta_b["target_region"] == "EUROPE"
+    assert len(results_b) >= 1
     assert results_b[0]["target_name"] == "Alpha AM"
 
     run_a, results_a = service.match_ideas_for_client(client_id=c1, input_ref="test_job_a", top_n=5)
@@ -58,4 +100,3 @@ def test_job_b_and_job_a_end_to_end(tmp_path) -> None:
 
     recent = repo.list_recent_match_results(limit=20)
     assert len(recent) >= len(results_a) + len(results_b)
-

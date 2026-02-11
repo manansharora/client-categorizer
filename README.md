@@ -23,6 +23,9 @@ Streamlit + SQLite MVP for semantic matching of ideas.
 - `core/`: domain logic and data access
 - `data/schema.sql`: SQLite schema
 - `scripts/init_db.py`: initialize and seed DB
+- `scripts/ingest_rfq_csv.py`: ingest RFQ CSV into aggregate feature store
+- `scripts/ingest_pm_csv.py`: ingest PM mapping/preferences CSV
+- `scripts/reset_and_rebuild_from_rfq.py`: one-shot reset and rebuild workflow
 - `tests/`: unit and integration tests
 
 ## Setup
@@ -55,7 +58,38 @@ Optional flags:
 - `--default-client-type BANK`
 - `--observation-type CALL_NOTE`
 
+## Ingest RFQ CSV
+Use RFQ structure from `RFQ_description_document.md`.
+
+```bash
+python scripts/ingest_rfq_csv.py --csv path\to\rfq_file.csv
+```
+
+Optional flags:
+- `--db path\to\db.sqlite`
+- `--append` to keep existing RFQ client aggregates and update in place.
+
+## Ingest PM CSV
+Use a separate PM file (for example: `Client`, `PM`, `PreferenceText`, plus optional RFQ-like columns).
+
+```bash
+python scripts/ingest_pm_csv.py --csv path\to\pm_file.csv
+```
+
+Optional flags:
+- `--db path\to\db.sqlite`
+- `--append` to keep existing PM aggregates and update in place.
+
+## Reset And Rebuild (RFQ Canonical Names)
+This wipes/recreates the DB, ingests RFQ first (canonical client names), then optional trade and PM files.
+
+```bash
+python scripts/reset_and_rebuild_from_rfq.py --rfq-csv path\to\rfq_file.csv --trade-csv path\to\trade_file.csv --pm-csv path\to\pm_file.csv
+```
+
 ## Notes
 - Database file is created at `data/client_categorizer.db`.
 - Taxonomy and synonym seed data are loaded idempotently.
 - Manual tag overrides are supported in UI.
+- Matching uses region-first candidate retrieval with fallback expansion.
+- Fast semantic mode is default (no per-query FastText training). Set `CLIENT_CATEGORIZER_FASTTEXT_TRAIN=1` to enable training.

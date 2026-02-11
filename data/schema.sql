@@ -7,6 +7,15 @@ CREATE TABLE IF NOT EXISTS clients (
     updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 
+CREATE TABLE IF NOT EXISTS client_aliases (
+    alias_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL,
+    alias_name TEXT NOT NULL UNIQUE,
+    source TEXT NOT NULL DEFAULT 'MANUAL',
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (client_id) REFERENCES clients (client_id)
+);
+
 CREATE TABLE IF NOT EXISTS client_observations (
     obs_id INTEGER PRIMARY KEY AUTOINCREMENT,
     client_id INTEGER NOT NULL,
@@ -18,12 +27,76 @@ CREATE TABLE IF NOT EXISTS client_observations (
     FOREIGN KEY (client_id) REFERENCES clients (client_id)
 );
 
+CREATE TABLE IF NOT EXISTS client_pms (
+    pm_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    client_id INTEGER NOT NULL,
+    pm_name TEXT NOT NULL,
+    active_flag INTEGER NOT NULL DEFAULT 1,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(client_id, pm_name),
+    FOREIGN KEY (client_id) REFERENCES clients (client_id)
+);
+
+CREATE TABLE IF NOT EXISTS pm_observations (
+    pm_obs_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pm_id INTEGER NOT NULL,
+    obs_type TEXT NOT NULL,
+    obs_text TEXT NOT NULL,
+    obs_date TEXT NOT NULL,
+    source_confidence REAL NOT NULL DEFAULT 1.0,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (pm_id) REFERENCES client_pms (pm_id)
+);
+
 CREATE TABLE IF NOT EXISTS ideas (
     idea_id INTEGER PRIMARY KEY AUTOINCREMENT,
     idea_title TEXT NOT NULL,
     idea_text TEXT NOT NULL,
     created_by TEXT,
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE IF NOT EXISTS rfq_ingest_runs (
+    run_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    source_file TEXT NOT NULL,
+    started_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    finished_at TEXT,
+    rows_read INTEGER NOT NULL DEFAULT 0,
+    rows_valid INTEGER NOT NULL DEFAULT 0,
+    rows_skipped INTEGER NOT NULL DEFAULT 0,
+    status TEXT NOT NULL,
+    error_summary TEXT
+);
+
+CREATE TABLE IF NOT EXISTS rfq_entity_feature_agg (
+    feature_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    region TEXT NOT NULL,
+    country TEXT,
+    feature_kind TEXT NOT NULL,
+    ccy_pair TEXT,
+    product_type TEXT,
+    tenor_bucket TEXT,
+    trade_count INTEGER NOT NULL DEFAULT 0,
+    hit_notional_sum_m REAL NOT NULL DEFAULT 0.0,
+    last_trade_date TEXT,
+    score_30d REAL NOT NULL DEFAULT 0.0,
+    score_90d REAL NOT NULL DEFAULT 0.0,
+    score_365d REAL NOT NULL DEFAULT 0.0,
+    recency_score REAL NOT NULL DEFAULT 0.0,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, entity_id, region, country, feature_kind, ccy_pair, product_type, tenor_bucket)
+);
+
+CREATE TABLE IF NOT EXISTS entity_profile_cache (
+    cache_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    entity_type TEXT NOT NULL,
+    entity_id INTEGER NOT NULL,
+    profile_text TEXT NOT NULL,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    UNIQUE(entity_type, entity_id)
 );
 
 CREATE TABLE IF NOT EXISTS taxonomy_tags (
@@ -97,6 +170,15 @@ CREATE TABLE IF NOT EXISTS feedback (
 );
 
 CREATE INDEX IF NOT EXISTS idx_observations_client ON client_observations(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_alias_name ON client_aliases(alias_name);
+CREATE INDEX IF NOT EXISTS idx_client_alias_client ON client_aliases(client_id);
+CREATE INDEX IF NOT EXISTS idx_client_pms_client ON client_pms(client_id, active_flag);
+CREATE INDEX IF NOT EXISTS idx_pm_obs_pm ON pm_observations(pm_id);
 CREATE INDEX IF NOT EXISTS idx_entity_tags ON entity_tags(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_match_results_run ON match_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_run ON feedback(run_id);
+CREATE INDEX IF NOT EXISTS idx_rfq_entity_kind ON rfq_entity_feature_agg(entity_type, feature_kind);
+CREATE INDEX IF NOT EXISTS idx_rfq_entity_region ON rfq_entity_feature_agg(entity_type, region, feature_kind, ccy_pair, product_type, recency_score DESC);
+CREATE INDEX IF NOT EXISTS idx_rfq_entity_country ON rfq_entity_feature_agg(entity_type, country, feature_kind, ccy_pair, product_type, recency_score DESC);
+CREATE INDEX IF NOT EXISTS idx_rfq_entity_lookup ON rfq_entity_feature_agg(entity_type, entity_id);
+CREATE INDEX IF NOT EXISTS idx_profile_cache_entity ON entity_profile_cache(entity_type, entity_id);

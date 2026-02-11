@@ -1,4 +1,5 @@
 import hashlib
+import os
 from collections.abc import Iterable
 
 import numpy as np
@@ -51,15 +52,23 @@ class FastTextEmbedder:
         min_count: int = 1,
         epochs: int = 25,
         fallback_dim: int = 128,
+        enable_training: bool | None = None,
     ):
         self.vector_size = vector_size
         self.window = window
         self.min_count = min_count
         self.epochs = epochs
         self.fallback_dim = fallback_dim
+        if enable_training is None:
+            env_value = os.getenv("CLIENT_CATEGORIZER_FASTTEXT_TRAIN", "").strip().lower()
+            enable_training = env_value in {"1", "true", "yes"}
+        self.enable_training = bool(enable_training)
         self.model = None
 
     def fit(self, texts: Iterable[str]) -> None:
+        if not self.enable_training:
+            self.model = None
+            return
         tokenized = [tokenize(text) for text in texts if text and tokenize(text)]
         if FastText is not None and len(tokenized) >= 2:
             model = FastText(

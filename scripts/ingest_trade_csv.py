@@ -134,12 +134,14 @@ def ingest_trade_csv(
             observation_text = build_observation_text(trade, sales_feedback, created_by)
 
             for client_name in client_names:
-                existing_client = repo.get_client_by_name(client_name)
+                existing_client = repo.resolve_client_by_name_or_alias(client_name)
                 if existing_client:
                     client_id = int(existing_client["client_id"])
+                    repo.add_client_alias(client_id, client_name, source="TRADE_CSV")
                 else:
                     client_id = repo.create_client(client_name, default_client_type, 1)
                     repo.set_manual_tags("CLIENT", client_id, [default_client_type])
+                    repo.add_client_alias(client_id, client_name, source="TRADE_CSV")
                     counters["clients_created"] += 1
 
                 touched_clients.add(client_id)
@@ -204,4 +206,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

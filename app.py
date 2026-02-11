@@ -6,7 +6,7 @@ from datetime import date
 import pandas as pd
 import streamlit as st
 
-from core.constants import CLIENT_TYPES, FEEDBACK_LABELS, OBSERVATION_TYPES
+from core.constants import CLIENT_TYPES, FEEDBACK_LABELS, OBSERVATION_TYPES, REGIONS
 from core.database import initialize_database
 from core.repository import Repository
 from core.service import ClientCategorizerService
@@ -198,6 +198,13 @@ def _render_feedback_controls(run_id: int, results: list[dict[str, object]], tar
             st.write(explanation["explanation_text"])
             st.write("Matched tags:", ", ".join(explanation["matched_tags"]) or "None")
             st.write("Top terms:", ", ".join(explanation["top_terms"]) or "None")
+            feature_evidence = explanation.get("feature_evidence")
+            if feature_evidence:
+                st.write("Feature evidence:", feature_evidence)
+            pm_drilldown = row.get("pm_drilldown", [])
+            if pm_drilldown:
+                st.write("PM drilldown:")
+                st.dataframe(pd.DataFrame(pm_drilldown), width="stretch")
             fb_label = st.selectbox("Feedback", FEEDBACK_LABELS, key=f"fb_label_{key_prefix}")
             fb_comment = st.text_input("Comment (optional)", key=f"fb_comment_{key_prefix}")
             if st.button("Save Feedback", key=f"fb_save_{key_prefix}"):
@@ -215,6 +222,8 @@ def page_match_clients_for_idea() -> None:
     idea_id = None
     idea_text = ""
     input_ref = "adhoc"
+    target_region = st.selectbox("Target Region", REGIONS, index=0)
+    target_country = st.text_input("Target Country (optional)", value="")
     if use_stored and ideas:
         options = {f'{i["idea_title"]} (#{i["idea_id"]})': int(i["idea_id"]) for i in ideas}
         selected = st.selectbox("Choose Idea", list(options.keys()))
@@ -231,26 +240,37 @@ def page_match_clients_for_idea() -> None:
         if not idea_text.strip():
             st.warning("Idea text is required.")
         else:
-            run_id, results = service.match_clients_for_idea(
+            run_id, results, meta = service.match_clients_for_idea(
                 idea_text=idea_text,
                 idea_id=idea_id,
                 input_ref=input_ref,
                 top_n=25,
+                region=target_region,
+                country=target_country.strip() or None,
             )
-            st.session_state["last_job_b"] = {"run_id": run_id, "results": results}
+            st.session_state["last_job_b"] = {"run_id": run_id, "results": results, "meta": meta}
             st.success(f"Matching complete. Run ID: {run_id}")
 
     payload = st.session_state.get("last_job_b")
     if payload:
         results = payload["results"]
         run_id = int(payload["run_id"])
+        meta = payload.get("meta")
+        if meta:
+            st.info(
+                f"Region target: {meta.get('target_region')} | Country: {meta.get('target_country') or 'N/A'} | "
+                f"Fallback used: {meta.get('fallback_used')}"
+            )
         table_rows = [
             {
                 "target_name": r["target_name"],
                 "final_score": r["final_score"],
+                "structured_score": r.get("structured_score", 0.0),
                 "semantic_score": r["semantic_score"],
                 "lexical_score": r["lexical_score"],
                 "taxonomy_score": r["taxonomy_score"],
+                "feature_region": (r["explanation"].get("feature_evidence") or {}).get("region", ""),
+                "feature_stage": (r["explanation"].get("feature_evidence") or {}).get("stage", ""),
                 "matched_tags": ", ".join(r["explanation"]["matched_tags"]),
                 "top_terms": ", ".join(r["explanation"]["top_terms"]),
                 "explanation_text": r["explanation"]["explanation_text"],
@@ -405,4 +425,3 @@ elif page == "Taxonomy & Synonyms":
     page_taxonomy_synonyms()
 else:
     page_feedback_review()
-

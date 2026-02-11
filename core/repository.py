@@ -51,6 +51,58 @@ class Repository:
         )
         return cur.fetchone()
 
+    def get_client_by_alias(self, alias_name: str) -> sqlite3.Row | None:
+        cur = self.conn.execute(
+            """
+            SELECT c.*
+            FROM client_aliases a
+            JOIN clients c ON c.client_id = a.client_id
+            WHERE a.alias_name = ?
+            """,
+            (alias_name.strip(),),
+        )
+        return cur.fetchone()
+
+    def resolve_client_by_name_or_alias(self, name: str) -> sqlite3.Row | None:
+        direct = self.get_client_by_name(name)
+        if direct is not None:
+            return direct
+        return self.get_client_by_alias(name)
+
+    def add_client_alias(self, client_id: int, alias_name: str, source: str = "MANUAL") -> None:
+        alias = alias_name.strip()
+        if not alias:
+            return
+        self.conn.execute(
+            """
+            INSERT INTO client_aliases(client_id, alias_name, source)
+            VALUES (?, ?, ?)
+            ON CONFLICT(alias_name) DO UPDATE SET client_id = excluded.client_id, source = excluded.source
+            """,
+            (client_id, alias, source),
+        )
+        self.conn.commit()
+
+    def list_client_aliases(self, client_id: int | None = None) -> list[sqlite3.Row]:
+        if client_id is None:
+            cur = self.conn.execute("SELECT * FROM client_aliases ORDER BY alias_name ASC")
+        else:
+            cur = self.conn.execute(
+                "SELECT * FROM client_aliases WHERE client_id = ? ORDER BY alias_name ASC",
+                (client_id,),
+            )
+        return cur.fetchall()
+
+    def list_clients_by_ids(self, client_ids: list[int]) -> list[sqlite3.Row]:
+        if not client_ids:
+            return []
+        placeholders = ",".join("?" for _ in client_ids)
+        cur = self.conn.execute(
+            f"SELECT * FROM clients WHERE client_id IN ({placeholders})",
+            client_ids,
+        )
+        return cur.fetchall()
+
     def add_observation(
         self,
         client_id: int,
@@ -87,6 +139,96 @@ class Repository:
                 ORDER BY obs_date DESC, obs_id DESC
                 """,
                 (client_id,),
+            )
+        return cur.fetchall()
+
+    def upsert_pm(self, client_id: int, pm_name: str, active_flag: int = 1) -> int:
+        pm_name = pm_name.strip()
+        self.conn.execute(
+            """
+            INSERT INTO client_pms(client_id, pm_name, active_flag)
+            VALUES (?, ?, ?)
+            ON CONFLICT(client_id, pm_name)
+            DO UPDATE SET active_flag = excluded.active_flag, updated_at = CURRENT_TIMESTAMP
+            """,
+            (client_id, pm_name, active_flag),
+        )
+        row = self.get_pm_by_client_name(client_id, pm_name)
+        self.conn.commit()
+        return int(row["pm_id"]) if row else 0
+
+    def get_pm(self, pm_id: int) -> sqlite3.Row | None:
+        cur = self.conn.execute("SELECT * FROM client_pms WHERE pm_id = ?", (pm_id,))
+        return cur.fetchone()
+
+    def get_pm_by_client_name(self, client_id: int, pm_name: str) -> sqlite3.Row | None:
+        cur = self.conn.execute(
+            "SELECT * FROM client_pms WHERE client_id = ? AND pm_name = ?",
+            (client_id, pm_name.strip()),
+        )
+        return cur.fetchone()
+
+    def list_pms(self, client_id: int | None = None, active_only: bool = True) -> list[sqlite3.Row]:
+        where = []
+        params: list[Any] = []
+        if client_id is not None:
+            where.append("p.client_id = ?")
+            params.append(client_id)
+        if active_only:
+            where.append("p.active_flag = 1")
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        cur = self.conn.execute(
+            f"""
+            SELECT p.*, c.client_name
+            FROM client_pms p
+            JOIN clients c ON c.client_id = p.client_id
+            {clause}
+            ORDER BY c.client_name ASC, p.pm_name ASC
+            """,
+            params,
+        )
+        return cur.fetchall()
+
+    def list_pms_by_ids(self, pm_ids: list[int]) -> list[sqlite3.Row]:
+        if not pm_ids:
+            return []
+        placeholders = ",".join("?" for _ in pm_ids)
+        cur = self.conn.execute(
+            f"""
+            SELECT p.*, c.client_name
+            FROM client_pms p
+            JOIN clients c ON c.client_id = p.client_id
+            WHERE p.pm_id IN ({placeholders})
+            """,
+            pm_ids,
+        )
+        return cur.fetchall()
+
+    def add_pm_observation(
+        self,
+        pm_id: int,
+        obs_type: str,
+        obs_text: str,
+        obs_date: date,
+        source_confidence: float,
+    ) -> int:
+        cur = self.conn.execute(
+            """
+            INSERT INTO pm_observations(pm_id, obs_type, obs_text, obs_date, source_confidence)
+            VALUES (?, ?, ?, ?, ?)
+            """,
+            (pm_id, obs_type, obs_text.strip(), obs_date.isoformat(), source_confidence),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def list_pm_observations(self, pm_id: int | None = None) -> list[sqlite3.Row]:
+        if pm_id is None:
+            cur = self.conn.execute("SELECT * FROM pm_observations ORDER BY obs_date DESC, pm_obs_id DESC")
+        else:
+            cur = self.conn.execute(
+                "SELECT * FROM pm_observations WHERE pm_id = ? ORDER BY obs_date DESC, pm_obs_id DESC",
+                (pm_id,),
             )
         return cur.fetchall()
 
@@ -213,6 +355,23 @@ class Repository:
         )
         return cur.fetchall()
 
+    def list_entity_tags_bulk(self, entity_type: str, entity_ids: list[int]) -> list[sqlite3.Row]:
+        if not entity_ids:
+            return []
+        placeholders = ",".join("?" for _ in entity_ids)
+        params: list[Any] = [entity_type, *entity_ids]
+        cur = self.conn.execute(
+            f"""
+            SELECT et.*, tt.tag_family, tt.tag_label
+            FROM entity_tags et
+            JOIN taxonomy_tags tt ON tt.tag_code = et.tag_code
+            WHERE et.entity_type = ? AND et.entity_id IN ({placeholders})
+            ORDER BY et.entity_id ASC, et.confidence DESC, et.tag_code ASC
+            """,
+            params,
+        )
+        return cur.fetchall()
+
     def replace_entity_tags(
         self,
         entity_type: str,
@@ -253,6 +412,163 @@ class Repository:
             (entity_type, entity_id, vector_type, json.dumps(vector)),
         )
         self.conn.commit()
+
+    def upsert_entity_profile_cache(self, entity_type: str, entity_id: int, profile_text: str) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO entity_profile_cache(entity_type, entity_id, profile_text, updated_at)
+            VALUES (?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(entity_type, entity_id)
+            DO UPDATE SET profile_text = excluded.profile_text, updated_at = CURRENT_TIMESTAMP
+            """,
+            (entity_type, entity_id, profile_text),
+        )
+        self.conn.commit()
+
+    def get_entity_profile_cache(self, entity_type: str, entity_id: int) -> sqlite3.Row | None:
+        cur = self.conn.execute(
+            "SELECT * FROM entity_profile_cache WHERE entity_type = ? AND entity_id = ?",
+            (entity_type, entity_id),
+        )
+        return cur.fetchone()
+
+    def list_entity_profile_cache_bulk(self, entity_type: str, entity_ids: list[int]) -> list[sqlite3.Row]:
+        if not entity_ids:
+            return []
+        placeholders = ",".join("?" for _ in entity_ids)
+        params: list[Any] = [entity_type, *entity_ids]
+        cur = self.conn.execute(
+            f"""
+            SELECT *
+            FROM entity_profile_cache
+            WHERE entity_type = ? AND entity_id IN ({placeholders})
+            """,
+            params,
+        )
+        return cur.fetchall()
+
+    def create_rfq_ingest_run(self, source_file: str, status: str = "RUNNING") -> int:
+        cur = self.conn.execute(
+            """
+            INSERT INTO rfq_ingest_runs(source_file, status)
+            VALUES (?, ?)
+            """,
+            (source_file, status),
+        )
+        self.conn.commit()
+        return int(cur.lastrowid)
+
+    def update_rfq_ingest_run(
+        self,
+        run_id: int,
+        status: str,
+        rows_read: int,
+        rows_valid: int,
+        rows_skipped: int,
+        error_summary: str | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            UPDATE rfq_ingest_runs
+            SET status = ?, rows_read = ?, rows_valid = ?, rows_skipped = ?, error_summary = ?,
+                finished_at = CURRENT_TIMESTAMP
+            WHERE run_id = ?
+            """,
+            (status, rows_read, rows_valid, rows_skipped, error_summary, run_id),
+        )
+        self.conn.commit()
+
+    def clear_rfq_features(self, entity_type: str | None = None) -> None:
+        if entity_type is None:
+            self.conn.execute("DELETE FROM rfq_entity_feature_agg")
+        else:
+            self.conn.execute("DELETE FROM rfq_entity_feature_agg WHERE entity_type = ?", (entity_type,))
+        self.conn.commit()
+
+    def upsert_rfq_features_bulk(self, rows: list[tuple[Any, ...]]) -> None:
+        if not rows:
+            return
+        self.conn.executemany(
+            """
+            INSERT INTO rfq_entity_feature_agg(
+                entity_type, entity_id, region, country, feature_kind,
+                ccy_pair, product_type, tenor_bucket,
+                trade_count, hit_notional_sum_m, last_trade_date,
+                score_30d, score_90d, score_365d, recency_score, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(entity_type, entity_id, region, country, feature_kind, ccy_pair, product_type, tenor_bucket)
+            DO UPDATE SET
+                trade_count = excluded.trade_count,
+                hit_notional_sum_m = excluded.hit_notional_sum_m,
+                last_trade_date = excluded.last_trade_date,
+                score_30d = excluded.score_30d,
+                score_90d = excluded.score_90d,
+                score_365d = excluded.score_365d,
+                recency_score = excluded.recency_score,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            rows,
+        )
+        self.conn.commit()
+
+    def list_rfq_features_for_entity(self, entity_type: str, entity_id: int) -> list[sqlite3.Row]:
+        cur = self.conn.execute(
+            """
+            SELECT *
+            FROM rfq_entity_feature_agg
+            WHERE entity_type = ? AND entity_id = ?
+            ORDER BY recency_score DESC, trade_count DESC
+            """,
+            (entity_type, entity_id),
+        )
+        return cur.fetchall()
+
+    def query_rfq_candidate_entities(
+        self,
+        entity_type: str,
+        region: str,
+        country: str | None,
+        feature_kinds: list[str],
+        ccy_pair: str | None,
+        product_type: str | None,
+        tenor_bucket: str | None,
+        limit: int,
+    ) -> list[sqlite3.Row]:
+        if not feature_kinds:
+            return []
+        placeholders = ",".join("?" for _ in feature_kinds)
+        conditions = [f"feature_kind IN ({placeholders})", "entity_type = ?", "region = ?"]
+        params: list[Any] = [*feature_kinds, entity_type, region]
+
+        if country:
+            conditions.append("country = ?")
+            params.append(country)
+        if ccy_pair:
+            conditions.append("ccy_pair = ?")
+            params.append(ccy_pair)
+        if product_type:
+            conditions.append("product_type = ?")
+            params.append(product_type)
+        if tenor_bucket:
+            conditions.append("tenor_bucket = ?")
+            params.append(tenor_bucket)
+
+        sql = f"""
+            SELECT entity_type, entity_id,
+                   SUM(recency_score) AS recency_sum,
+                   SUM(trade_count) AS trade_count_sum,
+                   SUM(score_30d) AS score_30d_sum,
+                   SUM(score_90d) AS score_90d_sum,
+                   SUM(score_365d) AS score_365d_sum
+            FROM rfq_entity_feature_agg
+            WHERE {' AND '.join(conditions)}
+            GROUP BY entity_type, entity_id
+            ORDER BY recency_sum DESC, trade_count_sum DESC
+            LIMIT ?
+        """
+        params.append(limit)
+        cur = self.conn.execute(sql, params)
+        return cur.fetchall()
 
     def create_match_run(self, run_type: str, input_ref: str | None) -> int:
         cur = self.conn.execute(
