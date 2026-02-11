@@ -161,9 +161,19 @@ class ClientCategorizerService:
         signals = extract_structured_signals_from_text(idea_text)
         target_region = (region or signals.get("region") or "EUROPE").upper()
         target_country = (country or "").upper() or None
-        pair = signals.get("ccy_pair", "")
-        product = signals.get("product_type", "")
+        pair = str(signals.get("ccy_pair", ""))
+        product = str(signals.get("product_type", ""))
         tenor = signals.get("tenor_bucket", "")
+        pairs = [str(v) for v in (signals.get("ccy_pairs") or [])]
+        products = [str(v) for v in (signals.get("product_types") or [])]
+        if not pairs and pair:
+            pairs = [pair]
+        if not products and product:
+            products = [product]
+        if not pairs:
+            pairs = [""]
+        if not products:
+            products = [""]
 
         stage_defs = self._choose_feature_stages(pair, product, tenor)
         regions_to_try = region_fallbacks(target_region)
@@ -188,22 +198,29 @@ class ClientCategorizerService:
             used_regions.append(reg)
 
             for stage in stage_defs:
-                rows = self.repo.query_rfq_candidate_entities(
-                    entity_type="CLIENT",
-                    region=reg,
-                    country=target_country if idx == 0 else None,
-                    feature_kinds=stage,
-                    ccy_pair=pair or None,
-                    product_type=product or None,
-                    tenor_bucket=tenor or None,
-                    limit=cap,
-                )
+                rows = []
+                for pair_candidate in pairs:
+                    for product_candidate in products:
+                        rows.extend(
+                            self.repo.query_rfq_candidate_entities(
+                                entity_type="CLIENT",
+                                region=reg,
+                                country=target_country if idx == 0 else None,
+                                feature_kinds=stage,
+                                ccy_pair=pair_candidate or None,
+                                product_type=product_candidate or None,
+                                tenor_bucket=tenor or None,
+                                limit=cap,
+                            )
+                        )
                 debug_attempts.append(
                     {
                         "region": reg,
                         "stage": ",".join(stage),
                         "strict_region": idx == 0,
                         "row_count": len(rows),
+                        "pair_candidates": [p for p in pairs if p],
+                        "product_candidates": [p for p in products if p],
                         "country_filter": target_country if idx == 0 else "",
                     }
                 )

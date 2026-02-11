@@ -88,6 +88,34 @@ TENOR_BUCKET_MAP = {
     ">1Y": ">1Y",
 }
 
+PRODUCT_KEYWORD_MAP = {
+    "DUAL DIGITAL": ["DIG", "DIGKNO", "DIGRKO", "DIGDKO", "MDIG", "WDIGKNO", "WDIGRKO", "WDIGDKO"],
+    "DIGITAL": ["DIG", "DIGKNO", "DIGRKO", "DIGDKO", "MDIG", "WDIGKNO", "WDIGRKO", "WDIGDKO"],
+    "DIGITALS": ["DIG", "DIGKNO", "DIGRKO", "DIGDKO", "MDIG", "WDIGKNO", "WDIGRKO", "WDIGDKO"],
+    "KNOCK OUT": ["KNO", "DKO", "RKO", "WRKO", "WDKO", "WKNO", "DIGKNO", "DIGRKO", "DIGDKO"],
+    "KNOCKOUT": ["KNO", "DKO", "RKO", "WRKO", "WDKO", "WKNO", "DIGKNO", "DIGRKO", "DIGDKO"],
+    "KIKO": ["KIKO", "EKIKO", "EKI"],
+    "KNOCK IN": ["KNI", "DKI", "RKI", "WRKI", "WDKI", "WKNI"],
+    "KNOCKIN": ["KNI", "DKI", "RKI", "WRKI", "WDKI", "WKNI"],
+    "VOL SWAP": ["VOLSWAP", "VARSWAP", "CORRSWP"],
+    "VAR SWAP": ["VARSWAP", "VOLSWAP"],
+    "BASKET": ["BASKET"],
+    "COMPOUND": ["COMPOUND"],
+    "FORWARD": ["FWDSTRUCT", "FWDACC", "AVGRATE_FWD", "COMMODITYFORWARD"],
+}
+
+
+def _dedupe_keep_order(values: list[str]) -> list[str]:
+    seen: set[str] = set()
+    out: list[str] = []
+    for value in values:
+        token = value.strip().upper()
+        if not token or token in seen:
+            continue
+        seen.add(token)
+        out.append(token)
+    return out
+
 
 def normalize_region(value: str) -> str:
     region = (value or "").strip().upper()
@@ -172,16 +200,18 @@ def region_fallbacks(region: str) -> list[str]:
     return ordered
 
 
-def extract_structured_signals_from_text(text: str) -> dict[str, str]:
+def extract_structured_signals_from_text(text: str) -> dict[str, str | list[str]]:
     raw = (text or "").upper()
-    pair_match = re.search(r"\b([A-Z]{6})\b", raw)
-    pair = normalize_ccy_pair(pair_match.group(1)) if pair_match else ""
+    pairs = _dedupe_keep_order([normalize_ccy_pair(match) for match in re.findall(r"\b([A-Z]{6})\b", raw)])
 
-    product = ""
-    for token in re.findall(r"\b[A-Z0-9_]{3,20}\b", raw):
+    products: list[str] = []
+    for token in re.findall(r"\b[A-Z0-9_]{3,30}\b", raw):
         if token in PRODUCT_TYPES:
-            product = token
-            break
+            products.append(token)
+    for phrase, mapped in PRODUCT_KEYWORD_MAP.items():
+        if phrase in raw:
+            products.extend(mapped)
+    products = [p for p in _dedupe_keep_order(products) if p in PRODUCT_TYPES]
 
     tenor = ""
     if re.search(r"\b1W\b", raw):
@@ -199,10 +229,13 @@ def extract_structured_signals_from_text(text: str) -> dict[str, str]:
             region = REGION_MAP[reg]
             break
 
+    primary_pair = pairs[0] if pairs else ""
+    primary_product = products[0] if products else ""
     return {
-        "ccy_pair": pair,
-        "product_type": product,
+        "ccy_pair": primary_pair,
+        "product_type": primary_product,
+        "ccy_pairs": pairs,
+        "product_types": products,
         "tenor_bucket": tenor,
         "region": region,
     }
-
