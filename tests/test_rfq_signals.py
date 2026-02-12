@@ -16,3 +16,17 @@ def test_extracts_non_digital_product_keywords() -> None:
     assert "EURUSD" in signals["ccy_pairs"]
     assert any(p in signals["product_types"] for p in ["KNO", "BASKET", "FWDSTRUCT"])
 
+
+def test_extracts_pairs_with_slash_and_risk_reversal_phrase() -> None:
+    text = "USD/JPY risk reversal 1W with correlation context."
+    signals = extract_structured_signals_from_text(text)
+    assert "USDJPY" in signals["ccy_pairs"]
+    assert "RKO" in signals["product_types"]
+    assert signals["tenor_bucket"] == "1W"
+
+
+def test_does_not_treat_region_words_as_currency_pairs() -> None:
+    text = "EUR/USD KO structure for Europe central bank risk."
+    signals = extract_structured_signals_from_text(text)
+    assert "EURUSD" in signals["ccy_pairs"]
+    assert "EUROPE" not in signals["ccy_pairs"]

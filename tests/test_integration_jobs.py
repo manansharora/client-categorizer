@@ -134,3 +134,135 @@ def test_job_b_and_job_a_end_to_end(tmp_path) -> None:
 
     recent = repo.list_recent_match_results(limit=20)
     assert len(recent) >= len(results_a) + len(results_b)
+
+
+def test_job_b_candidate_stage_filters_do_not_overconstrain(tmp_path) -> None:
+    db_path = tmp_path / "integration_stage_filters.db"
+    conn = initialize_database(db_path)
+    repo = Repository(conn)
+    service = ClientCategorizerService(repo)
+
+    c1 = repo.create_client("Citadel Demo", "HF_MACRO", 1)
+    c2 = repo.create_client("Brevan Demo", "HF_MACRO", 1)
+    repo.upsert_entity_profile_cache("CLIENT", c1, "USDJPY risk reversal short tenor")
+    repo.upsert_entity_profile_cache("CLIENT", c2, "Dual digital directional short vol")
+
+    today = date.today().isoformat()
+    repo.upsert_rfq_features_bulk(
+        [
+            (
+                "CLIENT",
+                c1,
+                "AMERICA",
+                "UNITED STATES",
+                "PAIR",
+                "USDJPY",
+                None,
+                None,
+                4,
+                20.0,
+                today,
+                1.5,
+                2.5,
+                4.0,
+                2.0,
+            ),
+            (
+                "CLIENT",
+                c1,
+                "AMERICA",
+                "UNITED STATES",
+                "PAIR_PRODUCT",
+                "USDJPY",
+                "RKO",
+                None,
+                2,
+                10.0,
+                today,
+                1.0,
+                1.5,
+                2.0,
+                1.2,
+            ),
+            (
+                "CLIENT",
+                c2,
+                "EUROPE",
+                "UNITED KINGDOM",
+                "PRODUCT",
+                None,
+                "DIGKNO",
+                None,
+                3,
+                15.0,
+                today,
+                1.2,
+                2.0,
+                3.1,
+                1.8,
+            ),
+        ]
+    )
+
+    _, results_usdjpy, meta_usdjpy = service.match_clients_for_idea(
+        idea_text="USDJPY risk reversal, short tenor 1W",
+        input_ref="test_stage_usdjpy",
+        top_n=5,
+        region="AMERICA",
+    )
+    assert len(results_usdjpy) >= 1
+    assert results_usdjpy[0]["target_name"] == "Citadel Demo"
+    assert any(d["row_count"] > 0 for d in meta_usdjpy["debug"])
+
+    _, results_digital, meta_digital = service.match_clients_for_idea(
+        idea_text="AUDUSD/AUDJPY dual digital directional short vol",
+        input_ref="test_stage_digital",
+        top_n=5,
+        region="EUROPE",
+    )
+    assert len(results_digital) >= 1
+    assert results_digital[0]["target_name"] == "Brevan Demo"
+    assert any(d["row_count"] > 0 for d in meta_digital["debug"])
+
+
+def test_job_b_structured_signals_use_raw_idea_text(tmp_path) -> None:
+    db_path = tmp_path / "integration_raw_signal.db"
+    conn = initialize_database(db_path)
+    repo = Repository(conn)
+    service = ClientCategorizerService(repo)
+
+    c1 = repo.create_client("Risk Reversal Demo", "HF_MACRO", 1)
+    repo.upsert_entity_profile_cache("CLIENT", c1, "USDJPY risk reversal short tenor")
+    today = date.today().isoformat()
+    repo.upsert_rfq_features_bulk(
+        [
+            (
+                "CLIENT",
+                c1,
+                "AMERICA",
+                "UNITED STATES",
+                "PAIR_PRODUCT",
+                "USDJPY",
+                "RKO",
+                None,
+                3,
+                20.0,
+                today,
+                1.0,
+                1.5,
+                2.0,
+                1.4,
+            )
+        ]
+    )
+
+    _, results, meta = service.match_clients_for_idea(
+        idea_text="USD/JPY risk reversal 1W",
+        input_ref="test_raw_signal",
+        top_n=5,
+        region="AMERICA",
+    )
+    assert len(results) >= 1
+    assert results[0]["target_name"] == "Risk Reversal Demo"
+    assert str(meta["signals"]["ccy_pair"]) == "USDJPY"
+    assert str(meta["signals"]["product_type"]) == "RKO"

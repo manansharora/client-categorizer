@@ -88,6 +88,23 @@ Optional flags:
 - `--db path\to\db.sqlite`
 - `--append` to keep existing PM aggregates and update in place.
 
+Sample PM file:
+- `data/sample_pm.csv` uses the sheet-style columns from your PM tracker.
+- `Ranking` and `Axes` are present in the file but ignored by ingestion.
+
+## Where PM Shows In Streamlit
+PMs are shown on:
+- `Match Clients for Idea`
+- Run a match, then open each client in the `Feedback` section expander.
+- You will see `PM drilldown` with `pm_name`, `pm_score`, semantic/lexical/structured components, and top terms.
+
+Quick local test flow:
+```bash
+python scripts/ingest_rfq_csv.py --csv data/sample_rfq.csv
+python scripts/ingest_pm_csv.py --csv data/sample_pm.csv
+python -m streamlit run app.py
+```
+
 ## Reset And Rebuild (RFQ Canonical Names)
 This wipes/recreates the DB, ingests RFQ first (canonical client names), then optional trade and PM files.
 

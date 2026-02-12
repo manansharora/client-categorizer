@@ -67,6 +67,50 @@ PRODUCT_TYPES = {
     "WDNT",
 }
 
+CURRENCY_CODES = {
+    "USD",
+    "EUR",
+    "JPY",
+    "GBP",
+    "CHF",
+    "AUD",
+    "NZD",
+    "CAD",
+    "NOK",
+    "SEK",
+    "DKK",
+    "CNH",
+    "CNY",
+    "HKD",
+    "SGD",
+    "INR",
+    "KRW",
+    "IDR",
+    "MYR",
+    "THB",
+    "TWD",
+    "PHP",
+    "VND",
+    "TRY",
+    "ZAR",
+    "RUB",
+    "MXN",
+    "BRL",
+    "CLP",
+    "COP",
+    "PEN",
+    "ARS",
+    "PLN",
+    "HUF",
+    "CZK",
+    "RON",
+    "AED",
+    "SAR",
+    "QAR",
+    "EGP",
+    "ILS",
+}
+
 
 REGION_MAP = {
     "EUROPE": "EUROPE",
@@ -102,6 +146,8 @@ PRODUCT_KEYWORD_MAP = {
     "BASKET": ["BASKET"],
     "COMPOUND": ["COMPOUND"],
     "FORWARD": ["FWDSTRUCT", "FWDACC", "AVGRATE_FWD", "COMMODITYFORWARD"],
+    "RISK REVERSAL": ["RKO", "DIGRKO", "WDIGRKO", "WRKO"],
+    "RISK-REVERSAL": ["RKO", "DIGRKO", "WDIGRKO", "WRKO"],
 }
 
 
@@ -115,6 +161,15 @@ def _dedupe_keep_order(values: list[str]) -> list[str]:
         seen.add(token)
         out.append(token)
     return out
+
+
+def _is_valid_pair(token: str) -> bool:
+    token = token.strip().upper()
+    if len(token) != 6:
+        return False
+    base = token[:3]
+    quote = token[3:]
+    return base in CURRENCY_CODES and quote in CURRENCY_CODES and base != quote
 
 
 def normalize_region(value: str) -> str:
@@ -202,15 +257,22 @@ def region_fallbacks(region: str) -> list[str]:
 
 def extract_structured_signals_from_text(text: str) -> dict[str, str | list[str]]:
     raw = (text or "").upper()
-    pairs = _dedupe_keep_order([normalize_ccy_pair(match) for match in re.findall(r"\b([A-Z]{6})\b", raw)])
+    pair_candidates: list[str] = []
+    pair_candidates.extend([f"{a}{b}" for a, b in re.findall(r"\b([A-Z]{3})\s*/\s*([A-Z]{3})\b", raw)])
+    pair_candidates.extend([f"{a}{b}" for a, b in re.findall(r"\b([A-Z]{3})\s*-\s*([A-Z]{3})\b", raw)])
+    pair_candidates.extend([f"{a}{b}" for a, b in re.findall(r"\b([A-Z]{3})\s+([A-Z]{3})\b", raw)])
+    pair_candidates.extend([normalize_ccy_pair(match) for match in re.findall(r"\b([A-Z]{6})\b", raw)])
+    pairs = _dedupe_keep_order([pair for pair in pair_candidates if _is_valid_pair(pair)])
 
     products: list[str] = []
     for token in re.findall(r"\b[A-Z0-9_]{3,30}\b", raw):
-        if token in PRODUCT_TYPES:
+        if token in PRODUCT_TYPES and token not in CURRENCY_CODES:
             products.append(token)
     for phrase, mapped in PRODUCT_KEYWORD_MAP.items():
         if phrase in raw:
             products.extend(mapped)
+    if re.search(r"(^|[^A-Z])RR([^A-Z]|$)", raw):
+        products.extend(["RKO", "DIGRKO"])
     products = [p for p in _dedupe_keep_order(products) if p in PRODUCT_TYPES]
 
     tenor = ""

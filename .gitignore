@@ -7,3 +7,4 @@ data/client_categorizer.db
 *.db-wal
 *.db-shm
 sample_rfq.csv
+data/sample_rfq.csv

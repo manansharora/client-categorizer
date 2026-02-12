@@ -40,6 +40,13 @@ def _client_options(clients: list[dict]) -> dict[str, int]:
     return {f'{c["client_name"]} ({c["client_type"]})': int(c["client_id"]) for c in clients}
 
 
+def _refresh_pm_profile_cache(pm_id: int) -> None:
+    observations = [dict(o) for o in repo.list_pm_observations(pm_id)]
+    snippets = [str(o["obs_text"]).strip() for o in observations if str(o["obs_text"]).strip()]
+    profile_text = " | ".join(snippets[:50]).strip() or f"PM {pm_id}"
+    repo.upsert_entity_profile_cache("PM", pm_id, profile_text)
+
+
 def page_client_manager() -> None:
     st.header("Client Manager")
     service.refresh_resources()
@@ -190,6 +197,109 @@ def page_idea_manager() -> None:
     st.dataframe(_rows_to_df(repo.list_ideas()), width="stretch")
 
 
+def page_pm_manager() -> None:
+    st.header("PM Manager")
+    clients = [dict(c) for c in repo.list_clients()]
+    if not clients:
+        st.info("Create at least one client before adding PMs.")
+        return
+
+    st.caption("PMs are linked to an existing client. This keeps PM ownership and matching behavior consistent.")
+    client_map = _client_options(clients)
+
+    st.subheader("Create / Update PM")
+    with st.form("create_pm_form"):
+        selected_client_label = st.selectbox("Client", list(client_map.keys()))
+        pm_name = st.text_input("Portfolio Manager Name")
+        active_flag = st.checkbox("Active", value=True)
+        salesperson = st.text_input("Salesperson (optional)")
+        client_segment = st.text_input("Client Segment (optional)")
+        email = st.text_input("Email (optional)")
+        style_text = st.text_input("Style (optional)")
+        example_trade = st.text_input("Example trade (optional)")
+        tags_text = st.text_input("Tags (optional)")
+        obs_date = st.date_input("Observation Date", value=date.today(), key="pm_create_obs_date")
+        source_confidence = st.slider("Source Confidence", 0.0, 1.0, 0.9, 0.05, key="pm_create_conf")
+        submitted = st.form_submit_button("Save PM")
+        if submitted:
+            if not pm_name.strip():
+                st.warning("Portfolio Manager name is required.")
+            else:
+                client_id = client_map[selected_client_label]
+                pm_id = repo.upsert_pm(client_id=client_id, pm_name=pm_name, active_flag=int(active_flag))
+                repo.upsert_pm_metadata(
+                    pm_id=pm_id,
+                    salesperson=salesperson,
+                    client_segment=client_segment,
+                    email=email,
+                    source_sheet="MANUAL_UI",
+                )
+                semantic_parts = [value.strip() for value in [style_text, example_trade, tags_text] if value and value.strip()]
+                semantic_text = " | ".join(semantic_parts).strip()
+                if semantic_text:
+                    repo.add_pm_observation(
+                        pm_id=pm_id,
+                        obs_type="PREFERENCE_NOTE",
+                        obs_text=semantic_text,
+                        obs_date=obs_date,
+                        source_confidence=source_confidence,
+                    )
+                _refresh_pm_profile_cache(pm_id)
+                st.success(f"PM saved for {selected_client_label}.")
+
+    pms = [dict(p) for p in repo.list_pms(active_only=False)]
+    if not pms:
+        st.info("No PMs yet.")
+        return
+
+    st.subheader("Add PM Observation")
+    pm_options = {
+        f'{p["client_name"]} :: {p["pm_name"]} (#{p["pm_id"]})': int(p["pm_id"])
+        for p in pms
+    }
+    with st.form("add_pm_observation_form"):
+        selected_pm_label = st.selectbox("PM", list(pm_options.keys()))
+        obs_type = st.selectbox("Observation Type", OBSERVATION_TYPES, key="pm_obs_type")
+        obs_text = st.text_area("Observation Text", height=120, key="pm_obs_text")
+        obs_date = st.date_input("Observation Date", value=date.today(), key="pm_obs_date")
+        source_confidence = st.slider("Source Confidence", 0.0, 1.0, 0.9, 0.05, key="pm_obs_conf")
+        obs_submit = st.form_submit_button("Add PM Observation")
+        if obs_submit:
+            if not obs_text.strip():
+                st.warning("Observation text is required.")
+            else:
+                pm_id = pm_options[selected_pm_label]
+                repo.add_pm_observation(
+                    pm_id=pm_id,
+                    obs_type=obs_type,
+                    obs_text=obs_text,
+                    obs_date=obs_date,
+                    source_confidence=source_confidence,
+                )
+                _refresh_pm_profile_cache(pm_id)
+                st.success("PM observation added.")
+
+    st.subheader("PM List")
+    table_rows = []
+    for pm in pms:
+        pm_id = int(pm["pm_id"])
+        meta = repo.get_pm_metadata(pm_id)
+        latest_obs_rows = [dict(o) for o in repo.list_pm_observations(pm_id)]
+        latest_obs = latest_obs_rows[0]["obs_text"] if latest_obs_rows else ""
+        table_rows.append(
+            {
+                "client_name": pm["client_name"],
+                "pm_name": pm["pm_name"],
+                "active_flag": pm["active_flag"],
+                "salesperson": (meta["salesperson"] if meta else ""),
+                "client_segment": (meta["client_segment"] if meta else ""),
+                "email": (meta["email"] if meta else ""),
+                "latest_observation": latest_obs,
+            }
+        )
+    st.dataframe(pd.DataFrame(table_rows), width="stretch")
+
+
 def _render_feedback_controls(run_id: int, results: list[dict[str, object]], target_label: str) -> None:
     st.markdown("### Feedback")
     for row in results[:10]:
@@ -287,6 +397,25 @@ def page_match_clients_for_idea() -> None:
                 st.warning(meta.get("empty_reason"))
             with st.expander("Debug details"):
                 st.json(meta.get("debug", []))
+        pm_summary_rows = []
+        for row in results:
+            for pm in row.get("pm_drilldown", []):
+                pm_summary_rows.append(
+                    {
+                        "client_name": row["target_name"],
+                        "client_score": row["final_score"],
+                        "pm_name": pm.get("pm_name", ""),
+                        "pm_score": pm.get("pm_score", 0.0),
+                        "pm_semantic": pm.get("semantic_score", 0.0),
+                        "pm_lexical": pm.get("lexical_score", 0.0),
+                        "pm_structured": pm.get("structured_score", 0.0),
+                        "pm_top_terms": ", ".join(pm.get("top_terms", [])),
+                        "pm_explanation": pm.get("explanation", ""),
+                    }
+                )
+        if pm_summary_rows:
+            st.subheader("PM Matches (From Returned Clients)")
+            st.dataframe(pd.DataFrame(pm_summary_rows), width="stretch")
         table_rows = [
             {
                 "target_name": r["target_name"],
@@ -431,6 +560,7 @@ page = st.sidebar.radio(
     "Navigation",
     [
         "Client Manager",
+        "PM Manager",
         "Idea Manager",
         "Match Clients for Idea",
         "Match Ideas for Client",
@@ -441,6 +571,8 @@ page = st.sidebar.radio(
 
 if page == "Client Manager":
     page_client_manager()
+elif page == "PM Manager":
+    page_pm_manager()
 elif page == "Idea Manager":
     page_idea_manager()
 elif page == "Match Clients for Idea":

@@ -193,26 +193,142 @@ class ClientCategorizerService:
             fallback_min,
         )
 
+        def _query_by_feature_kind(
+            reg: str,
+            strict_country: str | None,
+            feature_kind: str,
+            pair_candidates: list[str],
+            product_candidates: list[str],
+            tenor_value: str,
+            row_limit: int,
+        ) -> list[Any]:
+            rows_out: list[Any] = []
+            if feature_kind == "PAIR_PRODUCT_TENOR":
+                if not tenor_value:
+                    return rows_out
+                for pair_item in pair_candidates:
+                    if not pair_item:
+                        continue
+                    for product_item in product_candidates:
+                        if not product_item:
+                            continue
+                        rows_out.extend(
+                            self.repo.query_rfq_candidate_entities(
+                                entity_type="CLIENT",
+                                region=reg,
+                                country=strict_country,
+                                feature_kinds=[feature_kind],
+                                ccy_pair=pair_item,
+                                product_type=product_item,
+                                tenor_bucket=tenor_value,
+                                limit=row_limit,
+                            )
+                        )
+                return rows_out
+            if feature_kind == "PAIR_PRODUCT":
+                for pair_item in pair_candidates:
+                    if not pair_item:
+                        continue
+                    if any(product_candidates):
+                        for product_item in product_candidates:
+                            if not product_item:
+                                continue
+                            rows_out.extend(
+                                self.repo.query_rfq_candidate_entities(
+                                    entity_type="CLIENT",
+                                    region=reg,
+                                    country=strict_country,
+                                    feature_kinds=[feature_kind],
+                                    ccy_pair=pair_item,
+                                    product_type=product_item,
+                                    tenor_bucket=None,
+                                    limit=row_limit,
+                                )
+                            )
+                    else:
+                        rows_out.extend(
+                            self.repo.query_rfq_candidate_entities(
+                                entity_type="CLIENT",
+                                region=reg,
+                                country=strict_country,
+                                feature_kinds=[feature_kind],
+                                ccy_pair=pair_item,
+                                product_type=None,
+                                tenor_bucket=None,
+                                limit=row_limit,
+                            )
+                        )
+                return rows_out
+            if feature_kind == "PAIR":
+                for pair_item in pair_candidates:
+                    if not pair_item:
+                        continue
+                    rows_out.extend(
+                        self.repo.query_rfq_candidate_entities(
+                            entity_type="CLIENT",
+                            region=reg,
+                            country=strict_country,
+                            feature_kinds=[feature_kind],
+                            ccy_pair=pair_item,
+                            product_type=None,
+                            tenor_bucket=None,
+                            limit=row_limit,
+                        )
+                    )
+                return rows_out
+            if feature_kind == "PRODUCT":
+                for product_item in product_candidates:
+                    if not product_item:
+                        continue
+                    rows_out.extend(
+                        self.repo.query_rfq_candidate_entities(
+                            entity_type="CLIENT",
+                            region=reg,
+                            country=strict_country,
+                            feature_kinds=[feature_kind],
+                            ccy_pair=None,
+                            product_type=product_item,
+                            tenor_bucket=None,
+                            limit=row_limit,
+                        )
+                    )
+                return rows_out
+            if feature_kind == "TENOR":
+                if not tenor_value:
+                    return rows_out
+                rows_out.extend(
+                    self.repo.query_rfq_candidate_entities(
+                        entity_type="CLIENT",
+                        region=reg,
+                        country=strict_country,
+                        feature_kinds=[feature_kind],
+                        ccy_pair=None,
+                        product_type=None,
+                        tenor_bucket=tenor_value,
+                        limit=row_limit,
+                    )
+                )
+                return rows_out
+            return rows_out
+
         for idx, reg in enumerate(regions_to_try):
             region_penalty = 1.0 if idx == 0 else 0.85
             used_regions.append(reg)
 
             for stage in stage_defs:
                 rows = []
-                for pair_candidate in pairs:
-                    for product_candidate in products:
-                        rows.extend(
-                            self.repo.query_rfq_candidate_entities(
-                                entity_type="CLIENT",
-                                region=reg,
-                                country=target_country if idx == 0 else None,
-                                feature_kinds=stage,
-                                ccy_pair=pair_candidate or None,
-                                product_type=product_candidate or None,
-                                tenor_bucket=tenor or None,
-                                limit=cap,
-                            )
+                for feature_kind in stage:
+                    rows.extend(
+                        _query_by_feature_kind(
+                            reg=reg,
+                            strict_country=target_country if idx == 0 else None,
+                            feature_kind=feature_kind,
+                            pair_candidates=pairs,
+                            product_candidates=products,
+                            tenor_value=str(tenor or ""),
+                            row_limit=cap,
                         )
+                    )
                 debug_attempts.append(
                     {
                         "region": reg,
@@ -434,7 +550,7 @@ class ClientCategorizerService:
         idea_family = tags_to_family_map(idea_tags)
 
         candidate_meta, meta = self._candidate_clients(
-            idea_text=normalized_idea,
+            idea_text=idea_text,
             region=region,
             country=country,
             cap=candidate_cap,
@@ -499,7 +615,7 @@ class ClientCategorizerService:
         results.sort(key=lambda x: x["final_score"], reverse=True)
         results = results[:top_n]
         if include_pm and results:
-            pm_rankings = self.rank_pms_for_clients(normalized_idea, results, region=region, country=country)
+            pm_rankings = self.rank_pms_for_clients(idea_text, results, region=region, country=country)
             for row in results:
                 row["pm_drilldown"] = pm_rankings.get(int(row["target_entity_id"]), [])
 
