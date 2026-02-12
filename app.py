@@ -206,7 +206,20 @@ def _render_feedback_controls(run_id: int, results: list[dict[str, object]], tar
             pm_drilldown = row.get("pm_drilldown", [])
             if pm_drilldown:
                 st.write("PM drilldown:")
-                st.dataframe(pd.DataFrame(pm_drilldown), width="stretch")
+                pm_rows = []
+                for pm in pm_drilldown:
+                    pm_rows.append(
+                        {
+                            "pm_name": pm.get("pm_name", ""),
+                            "pm_score": pm.get("pm_score", 0.0),
+                            "semantic_score": pm.get("semantic_score", 0.0),
+                            "lexical_score": pm.get("lexical_score", 0.0),
+                            "structured_score": pm.get("structured_score", 0.0),
+                            "top_terms": ", ".join(pm.get("top_terms", [])),
+                            "explanation": pm.get("explanation", ""),
+                        }
+                    )
+                st.dataframe(pd.DataFrame(pm_rows), width="stretch")
             fb_label = st.selectbox("Feedback", FEEDBACK_LABELS, key=f"fb_label_{key_prefix}")
             fb_comment = st.text_input("Comment (optional)", key=f"fb_comment_{key_prefix}")
             if st.button("Save Feedback", key=f"fb_save_{key_prefix}"):

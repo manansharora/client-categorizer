@@ -232,6 +232,40 @@ class Repository:
             )
         return cur.fetchall()
 
+    def upsert_pm_metadata(
+        self,
+        pm_id: int,
+        salesperson: str | None = None,
+        client_segment: str | None = None,
+        email: str | None = None,
+        source_sheet: str | None = None,
+    ) -> None:
+        self.conn.execute(
+            """
+            INSERT INTO pm_metadata(pm_id, salesperson, client_segment, email, source_sheet, updated_at)
+            VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(pm_id)
+            DO UPDATE SET
+                salesperson = excluded.salesperson,
+                client_segment = excluded.client_segment,
+                email = excluded.email,
+                source_sheet = excluded.source_sheet,
+                updated_at = CURRENT_TIMESTAMP
+            """,
+            (
+                pm_id,
+                (salesperson or "").strip() or None,
+                (client_segment or "").strip() or None,
+                (email or "").strip() or None,
+                (source_sheet or "").strip() or None,
+            ),
+        )
+        self.conn.commit()
+
+    def get_pm_metadata(self, pm_id: int) -> sqlite3.Row | None:
+        cur = self.conn.execute("SELECT * FROM pm_metadata WHERE pm_id = ?", (pm_id,))
+        return cur.fetchone()
+
     def observation_exists(self, client_id: int, obs_type: str, obs_text: str, obs_date: str) -> bool:
         cur = self.conn.execute(
             """

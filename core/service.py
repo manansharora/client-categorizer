@@ -307,6 +307,7 @@ class ClientCategorizerService:
             return str(cache["profile_text"])
         observations = [dict(o) for o in self.repo.list_pm_observations(pm_id)]
         if not observations:
+            self.logger.warning("pm_profile_empty pm_id=%s", pm_id)
             return ""
         return " ".join(self.normalize_text(o["obs_text"]) for o in observations).strip()
 
@@ -325,6 +326,7 @@ class ClientCategorizerService:
         product = signals.get("product_type", "")
         tenor = signals.get("tenor_bucket", "")
         ranked: dict[int, list[dict[str, Any]]] = {}
+        normalized_idea = self.normalize_text(idea_text)
 
         for client_row in client_results[:10]:
             client_id = int(client_row["target_entity_id"])
@@ -336,10 +338,10 @@ class ClientCategorizerService:
             pm_ids = [int(p["pm_id"]) for p in pms]
             pm_profiles = {pm_id: self._pm_profile_text(pm_id) for pm_id in pm_ids}
             docs = [pm_profiles[pm_id] for pm_id in pm_ids]
-            lexical_scores = bm25_score_documents(idea_text, docs)
+            lexical_scores = bm25_score_documents(normalized_idea, docs)
             embedder = FastTextEmbedder()
-            embedder.fit([idea_text] + docs)
-            query_vec = embedder.encode(idea_text)
+            embedder.fit([normalized_idea] + docs)
+            query_vec = embedder.encode(normalized_idea)
             semantic_scores = [float(0.0) for _ in pm_ids]
             for idx, text in enumerate(docs):
                 semantic_scores[idx] = float((query_vec @ embedder.encode(text)) / ((query_vec @ query_vec) ** 0.5 + 1e-9))
@@ -372,21 +374,46 @@ class ClientCategorizerService:
             pm_results: list[dict[str, Any]] = []
             for idx, pm in enumerate(pms):
                 pm_id = int(pm["pm_id"])
-                pm_base = 0.5 * structured_scores[idx] + 0.3 * semantic_scores[idx] + 0.2 * lexical_scores[idx]
-                alpha = min(0.7, pm_meta[pm_id]["trade_sum"] / 100.0)
-                final = alpha * pm_base + (1.0 - alpha) * float(client_row["final_score"])
+                semantic = float(semantic_scores[idx])
+                lexical = float(lexical_scores[idx])
+                structured = float(structured_scores[idx])
+                final = 0.55 * semantic + 0.25 * lexical + 0.20 * structured
+                profile_text = docs[idx]
+                pm_terms = top_matching_terms(normalized_idea, profile_text, k=5)
                 pm_results.append(
                     {
                         "pm_id": pm_id,
                         "pm_name": str(pm["pm_name"]),
                         "pm_score": round(float(final), 6),
-                        "alpha": round(float(alpha), 4),
+                        "semantic_score": round(semantic, 6),
+                        "lexical_score": round(lexical, 6),
+                        "structured_score": round(structured, 6),
                         "trade_sum": round(float(pm_meta[pm_id]["trade_sum"]), 4),
                         "recency_sum": round(float(pm_meta[pm_id]["recency_sum"]), 4),
+                        "explanation": (
+                            f"PM Semantic={semantic:.3f}, Lexical={lexical:.3f}, "
+                            f"Structured={structured:.3f}, Final={final:.3f}"
+                        ),
+                        "top_terms": pm_terms,
+                        "feature_evidence": {
+                            "region": target_region,
+                            "country": target_country or "",
+                            "pair": pair,
+                            "product": product,
+                            "tenor": tenor,
+                            "trade_sum": round(float(pm_meta[pm_id]["trade_sum"]), 4),
+                            "recency_sum": round(float(pm_meta[pm_id]["recency_sum"]), 4),
+                        },
                     }
                 )
             pm_results.sort(key=lambda x: x["pm_score"], reverse=True)
             ranked[client_id] = pm_results[:per_client_cap]
+            self.logger.info(
+                "pm_ranked client_id=%s pm_count=%s top_pm=%s",
+                client_id,
+                len(pm_results),
+                pm_results[0]["pm_name"] if pm_results else "",
+            )
 
         return ranked
 

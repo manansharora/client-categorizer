@@ -73,6 +73,36 @@ def test_job_b_and_job_a_end_to_end(tmp_path) -> None:
             ),
         ]
     )
+    pm_id = repo.upsert_pm(c1, "PM Alpha", 1)
+    repo.add_pm_observation(
+        pm_id=pm_id,
+        obs_type="PREFERENCE_NOTE",
+        obs_text="Macro directional, likes EURUSD KO and central bank themes",
+        obs_date=date.today(),
+        source_confidence=0.9,
+    )
+    repo.upsert_entity_profile_cache("PM", pm_id, "Macro directional | EURUSD KO | central bank")
+    repo.upsert_rfq_features_bulk(
+        [
+            (
+                "PM",
+                pm_id,
+                "EUROPE",
+                "UNITED KINGDOM",
+                "PAIR_PRODUCT",
+                "EURUSD",
+                "KO",
+                None,
+                6,
+                30.0,
+                date.today().isoformat(),
+                2.0,
+                3.0,
+                5.0,
+                3.5,
+            )
+        ]
+    )
 
     idea_id = repo.create_idea(
         "CB KO Hedge",
@@ -92,6 +122,10 @@ def test_job_b_and_job_a_end_to_end(tmp_path) -> None:
     assert meta_b["target_region"] == "EUROPE"
     assert len(results_b) >= 1
     assert results_b[0]["target_name"] == "Alpha AM"
+    assert "pm_drilldown" in results_b[0]
+    assert len(results_b[0]["pm_drilldown"]) >= 1
+    assert "explanation" in results_b[0]["pm_drilldown"][0]
+    assert "top_terms" in results_b[0]["pm_drilldown"][0]
 
     run_a, results_a = service.match_ideas_for_client(client_id=c1, input_ref="test_job_a", top_n=5)
     assert run_a > 0

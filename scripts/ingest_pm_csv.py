@@ -57,7 +57,10 @@ def ingest_pm_csv(csv_path: Path, db_path: str | None = None, clear_existing_pm_
     rows_skipped = 0
     pms_created = 0
     obs_created = 0
+    pms_updated = 0
     feature_rows: list[tuple[Any, ...]] = []
+    unresolved_clients: set[str] = set()
+    resolved_mappings: list[tuple[str, str, str]] = []
 
     agg_map: dict[tuple[str, int, str, str, str, str | None, str | None, str | None], dict[str, Any]] = {}
     profile_texts: dict[int, list[str]] = {}
@@ -72,8 +75,13 @@ def ingest_pm_csv(csv_path: Path, db_path: str | None = None, clear_existing_pm_
             rows_read += 1
             get = _build_row_getter(row)
             client_name = get("Client", "Client Name")
-            pm_name = get("PM", "Portfolio Manager")
-            pref_text = get("PreferenceText", "Preference", "Notes")
+            pm_name = get("Portfolio Manager", "PM")
+            style_text = get("Style")
+            example_trade = get("Example trade", "Example Trade")
+            tags_text = get("Tags")
+            salesperson = get("Salesperson")
+            client_segment = get("Client Segment")
+            email = get("Email")
 
             if not client_name or not pm_name:
                 rows_skipped += 1
@@ -81,6 +89,7 @@ def ingest_pm_csv(csv_path: Path, db_path: str | None = None, clear_existing_pm_
 
             client = repo.resolve_client_by_name_or_alias(client_name)
             if client is None:
+                unresolved_clients.add(client_name)
                 rows_skipped += 1
                 continue
             client_id = int(client["client_id"])
@@ -90,20 +99,32 @@ def ingest_pm_csv(csv_path: Path, db_path: str | None = None, clear_existing_pm_
                 pms_created += 1
             else:
                 pm_id = int(pm["pm_id"])
+                pms_updated += 1
 
             rows_valid += 1
+            resolved_mappings.append((client_name, str(client["client_name"]), pm_name))
 
-            if pref_text:
+            repo.upsert_pm_metadata(
+                pm_id=pm_id,
+                salesperson=salesperson,
+                client_segment=client_segment,
+                email=email,
+                source_sheet=csv_path.name,
+            )
+
+            semantic_parts = [value.strip() for value in [style_text, example_trade, tags_text] if value and value.strip()]
+            semantic_text = " | ".join(semantic_parts).strip()
+            if semantic_text:
                 obs_date = parse_trade_date(get("date", "obs_date")) or date.today()
                 existing = {
                     (str(obs["obs_type"]), str(obs["obs_text"]).strip(), str(obs["obs_date"]))
                     for obs in repo.list_pm_observations(pm_id)
                 }
-                key = ("PREFERENCE_NOTE", pref_text.strip(), obs_date.isoformat())
+                key = ("PREFERENCE_NOTE", semantic_text, obs_date.isoformat())
                 if key not in existing:
-                    repo.add_pm_observation(pm_id, "PREFERENCE_NOTE", pref_text, obs_date, 0.9)
+                    repo.add_pm_observation(pm_id, "PREFERENCE_NOTE", semantic_text, obs_date, 0.9)
                     obs_created += 1
-                profile_texts.setdefault(pm_id, []).append(pref_text.strip())
+                profile_texts.setdefault(pm_id, []).append(semantic_text)
 
             ccy_pair = normalize_ccy_pair(get("CcyPair", "ccy_pair"))
             product_type = normalize_product_type(get("productType", "product_type"))
@@ -180,23 +201,38 @@ def ingest_pm_csv(csv_path: Path, db_path: str | None = None, clear_existing_pm_
         profile_text = " | ".join(snippets[:50]).strip() or f"PM {pm_id}"
         repo.upsert_entity_profile_cache("PM", pm_id, profile_text)
 
+    if resolved_mappings:
+        sample = resolved_mappings[:20]
+        logger.info("pm_client_mappings_sample count=%s sample=%s", len(resolved_mappings), sample)
+    if unresolved_clients:
+        unresolved_sample = sorted(unresolved_clients)[:50]
+        logger.warning(
+            "pm_unresolved_clients count=%s sample=%s",
+            len(unresolved_clients),
+            unresolved_sample,
+        )
+
     conn.close()
     logger.info(
-        "pm_ingest_done read=%s valid=%s skipped=%s pms_created=%s pm_obs=%s pm_features=%s",
+        "pm_ingest_done read=%s valid=%s skipped=%s pms_created=%s pms_updated=%s pm_obs=%s pm_features=%s unresolved_clients=%s",
         rows_read,
         rows_valid,
         rows_skipped,
         pms_created,
+        pms_updated,
         obs_created,
         len(feature_rows),
+        len(unresolved_clients),
     )
     return {
         "rows_read": rows_read,
         "rows_valid": rows_valid,
         "rows_skipped": rows_skipped,
         "pms_created": pms_created,
+        "pms_updated": pms_updated,
         "pm_observations_created": obs_created,
         "pm_features_upserted": len(feature_rows),
+        "unresolved_clients": len(unresolved_clients),
     }
 
 
@@ -210,8 +246,10 @@ def main() -> None:
     stats = ingest_pm_csv(Path(args.csv), db_path=args.db, clear_existing_pm_features=(not args.append))
     print("PM ingestion complete.")
     print(
-        "Read: {rows_read} | Valid: {rows_valid} | Skipped: {rows_skipped} | PMs created: {pms_created} | "
-        "PM obs created: {pm_observations_created} | PM features: {pm_features_upserted}".format(**stats)
+        "Read: {rows_read} | Valid: {rows_valid} | Skipped: {rows_skipped} | "
+        "PMs created: {pms_created} | PMs updated: {pms_updated} | "
+        "PM obs created: {pm_observations_created} | PM features: {pm_features_upserted} | "
+        "Unresolved clients: {unresolved_clients}".format(**stats)
     )
 
 

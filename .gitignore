@@ -2,4 +2,8 @@
 __pycache__/
 .pytest_cache/
 *.pyc
+logs/
 data/client_categorizer.db
+*.db-wal
+*.db-shm
+sample_rfq.csv

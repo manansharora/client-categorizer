@@ -24,7 +24,7 @@ Streamlit + SQLite MVP for semantic matching of ideas.
 - `data/schema.sql`: SQLite schema
 - `scripts/init_db.py`: initialize and seed DB
 - `scripts/ingest_rfq_csv.py`: ingest RFQ CSV into aggregate feature store
-- `scripts/ingest_pm_csv.py`: ingest PM mapping/preferences CSV
+- `scripts/ingest_pm_csv.py`: ingest PM sheet into PM entities + PM semantic profiles
 - `scripts/reset_and_rebuild_from_rfq.py`: one-shot reset and rebuild workflow
 - `tests/`: unit and integration tests
 
@@ -70,7 +70,15 @@ Optional flags:
 - `--append` to keep existing RFQ client aggregates and update in place.
 
 ## Ingest PM CSV
-Use a separate PM file (for example: `Client`, `PM`, `PreferenceText`, plus optional RFQ-like columns).
+Use a separate PM file with:
+- required: `Portfolio Manager`, `Client`
+- optional semantic fields: `Style`, `Example trade`, `Tags`
+- optional metadata fields: `Salesperson`, `Client Segment`, `Email`
+- optional structured fields for PM aggregate features: `CcyPair`, `productType`, `tenor_bucket`, `Client Region`, `clientregion`, `date`
+
+Notes:
+- `Ranking` and `Axes` columns are ignored by design.
+- PM profile text is built from `Style + Example trade + Tags`.
 
 ```bash
 python scripts/ingest_pm_csv.py --csv path\to\pm_file.csv

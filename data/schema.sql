@@ -49,6 +49,17 @@ CREATE TABLE IF NOT EXISTS pm_observations (
     FOREIGN KEY (pm_id) REFERENCES client_pms (pm_id)
 );
 
+CREATE TABLE IF NOT EXISTS pm_metadata (
+    pm_meta_id INTEGER PRIMARY KEY AUTOINCREMENT,
+    pm_id INTEGER NOT NULL UNIQUE,
+    salesperson TEXT,
+    client_segment TEXT,
+    email TEXT,
+    source_sheet TEXT,
+    updated_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (pm_id) REFERENCES client_pms (pm_id)
+);
+
 CREATE TABLE IF NOT EXISTS ideas (
     idea_id INTEGER PRIMARY KEY AUTOINCREMENT,
     idea_title TEXT NOT NULL,
@@ -174,6 +185,7 @@ CREATE INDEX IF NOT EXISTS idx_client_alias_name ON client_aliases(alias_name);
 CREATE INDEX IF NOT EXISTS idx_client_alias_client ON client_aliases(client_id);
 CREATE INDEX IF NOT EXISTS idx_client_pms_client ON client_pms(client_id, active_flag);
 CREATE INDEX IF NOT EXISTS idx_pm_obs_pm ON pm_observations(pm_id);
+CREATE INDEX IF NOT EXISTS idx_pm_meta_pm ON pm_metadata(pm_id);
 CREATE INDEX IF NOT EXISTS idx_entity_tags ON entity_tags(entity_type, entity_id);
 CREATE INDEX IF NOT EXISTS idx_match_results_run ON match_results(run_id);
 CREATE INDEX IF NOT EXISTS idx_feedback_run ON feedback(run_id);
