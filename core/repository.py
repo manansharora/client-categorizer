@@ -519,30 +519,62 @@ class Repository:
             self.conn.execute("DELETE FROM rfq_entity_feature_agg WHERE entity_type = ?", (entity_type,))
         self.conn.commit()
 
-    def upsert_rfq_features_bulk(self, rows: list[tuple[Any, ...]]) -> None:
+    def upsert_rfq_features_bulk(self, rows: list[tuple[Any, ...]], additive: bool = False) -> None:
         if not rows:
             return
-        self.conn.executemany(
+        normalized_rows: list[tuple[Any, ...]] = []
+        for row in rows:
+            mutable = list(row)
+            # Normalize nullable key fields so ON CONFLICT works in SQLite.
+            # SQLite treats NULLs as distinct in UNIQUE constraints.
+            for idx in (3, 5, 6, 7):  # country, ccy_pair, product_type, tenor_bucket
+                mutable[idx] = (mutable[idx] or "")
+            normalized_rows.append(tuple(mutable))
+        if additive:
+            sql = """
+                INSERT INTO rfq_entity_feature_agg(
+                    entity_type, entity_id, region, country, feature_kind,
+                    ccy_pair, product_type, tenor_bucket,
+                    trade_count, hit_notional_sum_m, last_trade_date,
+                    score_30d, score_90d, score_365d, recency_score, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(entity_type, entity_id, region, country, feature_kind, ccy_pair, product_type, tenor_bucket)
+                DO UPDATE SET
+                    trade_count = rfq_entity_feature_agg.trade_count + excluded.trade_count,
+                    hit_notional_sum_m = rfq_entity_feature_agg.hit_notional_sum_m + excluded.hit_notional_sum_m,
+                    last_trade_date = CASE
+                        WHEN rfq_entity_feature_agg.last_trade_date IS NULL OR excluded.last_trade_date IS NULL
+                            THEN COALESCE(excluded.last_trade_date, rfq_entity_feature_agg.last_trade_date)
+                        WHEN excluded.last_trade_date > rfq_entity_feature_agg.last_trade_date
+                            THEN excluded.last_trade_date
+                        ELSE rfq_entity_feature_agg.last_trade_date
+                    END,
+                    score_30d = rfq_entity_feature_agg.score_30d + excluded.score_30d,
+                    score_90d = rfq_entity_feature_agg.score_90d + excluded.score_90d,
+                    score_365d = rfq_entity_feature_agg.score_365d + excluded.score_365d,
+                    recency_score = rfq_entity_feature_agg.recency_score + excluded.recency_score,
+                    updated_at = CURRENT_TIMESTAMP
             """
-            INSERT INTO rfq_entity_feature_agg(
-                entity_type, entity_id, region, country, feature_kind,
-                ccy_pair, product_type, tenor_bucket,
-                trade_count, hit_notional_sum_m, last_trade_date,
-                score_30d, score_90d, score_365d, recency_score, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
-            ON CONFLICT(entity_type, entity_id, region, country, feature_kind, ccy_pair, product_type, tenor_bucket)
-            DO UPDATE SET
-                trade_count = excluded.trade_count,
-                hit_notional_sum_m = excluded.hit_notional_sum_m,
-                last_trade_date = excluded.last_trade_date,
-                score_30d = excluded.score_30d,
-                score_90d = excluded.score_90d,
-                score_365d = excluded.score_365d,
-                recency_score = excluded.recency_score,
-                updated_at = CURRENT_TIMESTAMP
-            """,
-            rows,
-        )
+        else:
+            sql = """
+                INSERT INTO rfq_entity_feature_agg(
+                    entity_type, entity_id, region, country, feature_kind,
+                    ccy_pair, product_type, tenor_bucket,
+                    trade_count, hit_notional_sum_m, last_trade_date,
+                    score_30d, score_90d, score_365d, recency_score, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                ON CONFLICT(entity_type, entity_id, region, country, feature_kind, ccy_pair, product_type, tenor_bucket)
+                DO UPDATE SET
+                    trade_count = excluded.trade_count,
+                    hit_notional_sum_m = excluded.hit_notional_sum_m,
+                    last_trade_date = excluded.last_trade_date,
+                    score_30d = excluded.score_30d,
+                    score_90d = excluded.score_90d,
+                    score_365d = excluded.score_365d,
+                    recency_score = excluded.recency_score,
+                    updated_at = CURRENT_TIMESTAMP
+            """
+        self.conn.executemany(sql, normalized_rows)
         self.conn.commit()
 
     def list_rfq_features_for_entity(self, entity_type: str, entity_id: int) -> list[sqlite3.Row]:

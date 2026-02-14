@@ -397,10 +397,31 @@ def page_match_clients_for_idea() -> None:
                 st.warning(meta.get("empty_reason"))
             with st.expander("Debug details"):
                 st.json(meta.get("debug", []))
-        pm_summary_rows = []
+        pm_global_rows = []
+        if meta:
+            for pm in meta.get("pm_global_results", []):
+                pm_global_rows.append(
+                    {
+                        "pm_name": pm.get("pm_name", ""),
+                        "client_name": pm.get("client_name", ""),
+                        "pm_score": pm.get("pm_score", 0.0),
+                        "pm_semantic": pm.get("semantic_score", 0.0),
+                        "pm_lexical": pm.get("lexical_score", 0.0),
+                        "pm_structured": pm.get("structured_score", 0.0),
+                        "feature_region": (pm.get("feature_evidence") or {}).get("region", ""),
+                        "feature_stage": (pm.get("feature_evidence") or {}).get("stage", ""),
+                        "pm_top_terms": ", ".join(pm.get("top_terms", [])),
+                        "pm_explanation": pm.get("explanation", ""),
+                    }
+                )
+        if pm_global_rows:
+            st.subheader("Top PM Matches (Region Filtered)")
+            st.dataframe(pd.DataFrame(pm_global_rows), width="stretch")
+
+        pm_linked_rows = []
         for row in results:
             for pm in row.get("pm_drilldown", []):
-                pm_summary_rows.append(
+                pm_linked_rows.append(
                     {
                         "client_name": row["target_name"],
                         "client_score": row["final_score"],
@@ -413,9 +434,9 @@ def page_match_clients_for_idea() -> None:
                         "pm_explanation": pm.get("explanation", ""),
                     }
                 )
-        if pm_summary_rows:
-            st.subheader("PM Matches (From Returned Clients)")
-            st.dataframe(pd.DataFrame(pm_summary_rows), width="stretch")
+        if pm_linked_rows:
+            st.subheader("PM Matches (Within Returned Clients)")
+            st.dataframe(pd.DataFrame(pm_linked_rows), width="stretch")
         table_rows = [
             {
                 "target_name": r["target_name"],

@@ -119,7 +119,10 @@ def _build_profile_text(client_name: str, rows: list[tuple[tuple[Any, ...], Agg]
     return " | ".join(parts)
 
 
-def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: bool = True) -> dict[str, int]:
+def ingest_rfq_csv(
+    csv_path: Path,
+    db_path: str | None = None,
+) -> dict[str, int]:
     conn = initialize_database(db_path)
     repo = Repository(conn)
     run_id = repo.create_rfq_ingest_run(str(csv_path), status="RUNNING")
@@ -128,13 +131,19 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
     rows_valid = 0
     rows_skipped = 0
     clients_created = 0
+    pms_created = 0
 
     client_id_cache: dict[str, int] = {}
+    pm_id_cache: dict[tuple[int, str], int] = {}
     aggs: dict[tuple[str, int, str, str, str, str | None, str | None, str | None], Agg] = {}
     profile_buckets: dict[int, list[tuple[tuple[Any, ...], Agg]]] = defaultdict(list)
+    pm_profile_names: dict[int, str] = {}
 
     try:
-        logger.info("rfq_ingest_start file=%s clear_existing=%s", csv_path, clear_existing)
+        logger.info(
+            "rfq_ingest_start file=%s mode=additive",
+            csv_path,
+        )
         with csv_path.open("r", encoding="utf-8-sig", newline="") as handle:
             reader = csv.DictReader(handle)
             _ensure_headers(reader.fieldnames)
@@ -150,6 +159,7 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
                 product_type = normalize_product_type(get("productType"))
                 tenor_bucket = normalize_tenor_bucket(get("tenor_bucket"))
                 sector = get("Client Sector")
+                pm_name = get("portfolioManager", "Portfolio Manager", "portfolio manager", "PM")
                 trade_date = parse_trade_date(get("date"))
                 notional_m = parse_hit_notional_m(get("Hit Notional"))
 
@@ -198,8 +208,45 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
                     agg.score_365d += _decay(days_old, 365.0)
                     agg.recency_score += _decay(days_old, 180.0)
 
-        if clear_existing:
-            repo.clear_rfq_features("CLIENT")
+                pm_name_clean = (pm_name or "").strip()
+                if pm_name_clean:
+                    pm_cache_key = (client_id, pm_name_clean.casefold())
+                    pm_id = pm_id_cache.get(pm_cache_key)
+                    if pm_id is None:
+                        existing_pm = repo.get_pm_by_client_name(client_id, pm_name_clean)
+                        if existing_pm is not None:
+                            pm_id = int(existing_pm["pm_id"])
+                        else:
+                            pm_id = repo.upsert_pm(client_id=client_id, pm_name=pm_name_clean, active_flag=1)
+                            pms_created += 1
+                        pm_id_cache[pm_cache_key] = pm_id
+                        pm_profile_names[pm_id] = pm_name_clean
+                        repo.upsert_pm_metadata(pm_id=pm_id, source_sheet=csv_path.name)
+
+                    for feature_kind, pair, prod, tenor in feature_keys:
+                        pm_agg_key = (
+                            "PM",
+                            pm_id,
+                            region,
+                            country,
+                            feature_kind,
+                            pair,
+                            prod,
+                            tenor,
+                        )
+                        pm_agg = aggs.get(pm_agg_key)
+                        if pm_agg is None:
+                            pm_agg = Agg()
+                            aggs[pm_agg_key] = pm_agg
+                        pm_agg.trade_count += 1
+                        pm_agg.hit_notional_sum_m += notional_m
+                        trade_date_str = trade_date.isoformat()
+                        if not pm_agg.last_trade_date or trade_date_str > pm_agg.last_trade_date:
+                            pm_agg.last_trade_date = trade_date_str
+                        pm_agg.score_30d += _decay(days_old, 30.0)
+                        pm_agg.score_90d += _decay(days_old, 90.0)
+                        pm_agg.score_365d += _decay(days_old, 365.0)
+                        pm_agg.recency_score += _decay(days_old, 180.0)
 
         upsert_rows: list[tuple[Any, ...]] = []
         for key, agg in aggs.items():
@@ -224,11 +271,14 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
                 )
             )
             profile_buckets[entity_id].append(((feature_kind, pair, prod, tenor), agg))
-        repo.upsert_rfq_features_bulk(upsert_rows)
+        repo.upsert_rfq_features_bulk(upsert_rows, additive=True)
 
         for client_name, client_id in client_id_cache.items():
             profile_text = _build_profile_text(client_name, profile_buckets.get(client_id, []))
             repo.upsert_entity_profile_cache("CLIENT", client_id, profile_text)
+        for pm_id, pm_name in pm_profile_names.items():
+            profile_text = _build_profile_text(pm_name, profile_buckets.get(pm_id, []))
+            repo.upsert_entity_profile_cache("PM", pm_id, profile_text)
 
         repo.update_rfq_ingest_run(
             run_id=run_id,
@@ -254,6 +304,7 @@ def ingest_rfq_csv(csv_path: Path, db_path: str | None = None, clear_existing: b
             "rows_valid": rows_valid,
             "rows_skipped": rows_skipped,
             "clients_created": clients_created,
+            "pms_created": pms_created,
             "features_upserted": len(upsert_rows),
         }
     except Exception as exc:
@@ -274,18 +325,16 @@ def main() -> None:
     parser = argparse.ArgumentParser(description="Ingest RFQ CSV into aggregate feature tables.")
     parser.add_argument("--csv", required=True, help="Path to RFQ CSV file.")
     parser.add_argument("--db", default=None, help="Optional SQLite DB path.")
-    parser.add_argument(
-        "--append",
-        action="store_true",
-        help="Append/update features instead of clearing existing CLIENT RFQ features.",
-    )
     args = parser.parse_args()
 
-    stats = ingest_rfq_csv(csv_path=Path(args.csv), db_path=args.db, clear_existing=(not args.append))
+    stats = ingest_rfq_csv(
+        csv_path=Path(args.csv),
+        db_path=args.db,
+    )
     print("RFQ ingestion complete.")
     print(
         "Run: {run_id} | Read: {rows_read} | Valid: {rows_valid} | Skipped: {rows_skipped} | "
-        "Clients created: {clients_created} | Features upserted: {features_upserted}".format(**stats)
+        "Clients created: {clients_created} | PMs created: {pms_created} | Features upserted: {features_upserted}".format(**stats)
     )
 
 

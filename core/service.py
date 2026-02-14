@@ -386,6 +386,214 @@ class ClientCategorizerService:
         )
         return candidates, metadata
 
+    def _candidate_pms(
+        self,
+        idea_text: str,
+        region: str | None,
+        country: str | None,
+        cap: int,
+        fallback_min: int,
+    ) -> tuple[dict[int, dict[str, Any]], dict[str, Any]]:
+        signals = extract_structured_signals_from_text(idea_text)
+        target_region = (region or signals.get("region") or "EUROPE").upper()
+        target_country = (country or "").upper() or None
+        pair = str(signals.get("ccy_pair", ""))
+        product = str(signals.get("product_type", ""))
+        tenor = signals.get("tenor_bucket", "")
+        pairs = [str(v) for v in (signals.get("ccy_pairs") or [])]
+        products = [str(v) for v in (signals.get("product_types") or [])]
+        if not pairs and pair:
+            pairs = [pair]
+        if not products and product:
+            products = [product]
+        if not pairs:
+            pairs = [""]
+        if not products:
+            products = [""]
+
+        stage_defs = self._choose_feature_stages(pair, product, tenor)
+        regions_to_try = region_fallbacks(target_region)
+
+        candidates: dict[int, dict[str, Any]] = {}
+        used_regions: list[str] = []
+        debug_attempts: list[dict[str, Any]] = []
+
+        self.logger.info(
+            "pm_candidate_search_start region=%s country=%s pair=%s product=%s tenor=%s cap=%s fallback_min=%s",
+            target_region,
+            target_country,
+            pair,
+            product,
+            tenor,
+            cap,
+            fallback_min,
+        )
+
+        for idx, reg in enumerate(regions_to_try):
+            region_penalty = 1.0 if idx == 0 else 0.85
+            used_regions.append(reg)
+
+            for stage in stage_defs:
+                rows = []
+                for feature_kind in stage:
+                    if feature_kind == "PAIR_PRODUCT_TENOR":
+                        if not tenor:
+                            continue
+                        for pair_item in pairs:
+                            if not pair_item:
+                                continue
+                            for product_item in products:
+                                if not product_item:
+                                    continue
+                                rows.extend(
+                                    self.repo.query_rfq_candidate_entities(
+                                        entity_type="PM",
+                                        region=reg,
+                                        country=target_country if idx == 0 else None,
+                                        feature_kinds=[feature_kind],
+                                        ccy_pair=pair_item,
+                                        product_type=product_item,
+                                        tenor_bucket=tenor,
+                                        limit=cap,
+                                    )
+                                )
+                    elif feature_kind == "PAIR_PRODUCT":
+                        for pair_item in pairs:
+                            if not pair_item:
+                                continue
+                            if any(products):
+                                for product_item in products:
+                                    if not product_item:
+                                        continue
+                                    rows.extend(
+                                        self.repo.query_rfq_candidate_entities(
+                                            entity_type="PM",
+                                            region=reg,
+                                            country=target_country if idx == 0 else None,
+                                            feature_kinds=[feature_kind],
+                                            ccy_pair=pair_item,
+                                            product_type=product_item,
+                                            tenor_bucket=None,
+                                            limit=cap,
+                                        )
+                                    )
+                            else:
+                                rows.extend(
+                                    self.repo.query_rfq_candidate_entities(
+                                        entity_type="PM",
+                                        region=reg,
+                                        country=target_country if idx == 0 else None,
+                                        feature_kinds=[feature_kind],
+                                        ccy_pair=pair_item,
+                                        product_type=None,
+                                        tenor_bucket=None,
+                                        limit=cap,
+                                    )
+                                )
+                    elif feature_kind == "PAIR":
+                        for pair_item in pairs:
+                            if not pair_item:
+                                continue
+                            rows.extend(
+                                self.repo.query_rfq_candidate_entities(
+                                    entity_type="PM",
+                                    region=reg,
+                                    country=target_country if idx == 0 else None,
+                                    feature_kinds=[feature_kind],
+                                    ccy_pair=pair_item,
+                                    product_type=None,
+                                    tenor_bucket=None,
+                                    limit=cap,
+                                )
+                            )
+                    elif feature_kind == "PRODUCT":
+                        for product_item in products:
+                            if not product_item:
+                                continue
+                            rows.extend(
+                                self.repo.query_rfq_candidate_entities(
+                                    entity_type="PM",
+                                    region=reg,
+                                    country=target_country if idx == 0 else None,
+                                    feature_kinds=[feature_kind],
+                                    ccy_pair=None,
+                                    product_type=product_item,
+                                    tenor_bucket=None,
+                                    limit=cap,
+                                )
+                            )
+                    elif feature_kind == "TENOR":
+                        if tenor:
+                            rows.extend(
+                                self.repo.query_rfq_candidate_entities(
+                                    entity_type="PM",
+                                    region=reg,
+                                    country=target_country if idx == 0 else None,
+                                    feature_kinds=[feature_kind],
+                                    ccy_pair=None,
+                                    product_type=None,
+                                    tenor_bucket=tenor,
+                                    limit=cap,
+                                )
+                            )
+
+                debug_attempts.append(
+                    {
+                        "region": reg,
+                        "stage": ",".join(stage),
+                        "strict_region": idx == 0,
+                        "row_count": len(rows),
+                        "pair_candidates": [p for p in pairs if p],
+                        "product_candidates": [p for p in products if p],
+                        "country_filter": target_country if idx == 0 else "",
+                    }
+                )
+                for row in rows:
+                    pm_id = int(row["entity_id"])
+                    structured_raw = float(row["recency_sum"] or 0.0) + 0.002 * float(row["trade_count_sum"] or 0.0)
+                    structured_raw *= region_penalty
+                    existing = candidates.get(pm_id)
+                    payload = {
+                        "structured_raw": structured_raw,
+                        "trade_count_sum": float(row["trade_count_sum"] or 0.0),
+                        "score_30d_sum": float(row["score_30d_sum"] or 0.0),
+                        "score_90d_sum": float(row["score_90d_sum"] or 0.0),
+                        "score_365d_sum": float(row["score_365d_sum"] or 0.0),
+                        "matched_region": reg,
+                        "strict_region": idx == 0,
+                        "stage": ",".join(stage),
+                    }
+                    if existing is None or payload["structured_raw"] > existing["structured_raw"]:
+                        candidates[pm_id] = payload
+
+            if idx == 0 and len(candidates) >= fallback_min:
+                break
+
+        empty_reason = ""
+        if not candidates:
+            empty_reason = (
+                "No PM candidates from RFQ aggregate features for provided region/country/signals. "
+                "Try broader region/country or ensure idea has pair/product terms present in PM/RFQ data."
+            )
+            self.logger.warning("pm_candidate_search_empty attempts=%s", debug_attempts)
+
+        metadata = {
+            "target_region": target_region,
+            "target_country": target_country,
+            "used_regions": used_regions,
+            "fallback_used": len(used_regions) > 1,
+            "signals": signals,
+            "debug": debug_attempts,
+            "empty_reason": empty_reason,
+        }
+        self.logger.info(
+            "pm_candidate_search_done candidates=%s fallback_used=%s used_regions=%s",
+            len(candidates),
+            metadata["fallback_used"],
+            used_regions,
+        )
+        return candidates, metadata
+
     def _extract_explanation(
         self,
         query_text: str,
@@ -444,7 +652,7 @@ class ClientCategorizerService:
         ranked: dict[int, list[dict[str, Any]]] = {}
         normalized_idea = self.normalize_text(idea_text)
 
-        for client_row in client_results[:10]:
+        for client_row in client_results:
             client_id = int(client_row["target_entity_id"])
             pms = [dict(p) for p in self.repo.list_pms(client_id=client_id, active_only=True)]
             if not pms:
@@ -533,6 +741,83 @@ class ClientCategorizerService:
 
         return ranked
 
+    def match_pms_for_idea(
+        self,
+        idea_text: str,
+        top_n: int = 25,
+        region: str | None = None,
+        country: str | None = None,
+        candidate_cap: int = MATCH_CLIENT_CANDIDATE_CAP,
+        fallback_min: int = MATCH_CLIENT_FALLBACK_MIN,
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
+        normalized_idea = self.normalize_text(idea_text)
+        candidate_meta, meta = self._candidate_pms(
+            idea_text=idea_text,
+            region=region,
+            country=country,
+            cap=candidate_cap,
+            fallback_min=fallback_min,
+        )
+        pm_ids = list(candidate_meta.keys())
+        if not pm_ids:
+            return [], meta
+
+        pm_rows = {int(p["pm_id"]): dict(p) for p in self.repo.list_pms_by_ids(pm_ids)}
+        ordered_pm_ids = [pm_id for pm_id in pm_ids if pm_id in pm_rows]
+        if not ordered_pm_ids:
+            return [], meta
+
+        docs = [self._pm_profile_text(pm_id) for pm_id in ordered_pm_ids]
+        lexical_scores = bm25_score_documents(normalized_idea, docs)
+        embedder = FastTextEmbedder()
+        embedder.fit([normalized_idea] + docs)
+        query_vec = embedder.encode(normalized_idea)
+        semantic_raw: list[float] = []
+        for doc in docs:
+            vec = embedder.encode(doc)
+            denom = float(((query_vec @ query_vec) ** 0.5) * ((vec @ vec) ** 0.5) + 1e-9)
+            semantic_raw.append(float((query_vec @ vec) / denom if denom > 0 else 0.0))
+        semantic_scores = min_max_scale(semantic_raw)
+
+        structured_raw = [float(candidate_meta[pm_id]["structured_raw"]) for pm_id in ordered_pm_ids]
+        structured_scores = min_max_scale(structured_raw)
+
+        results: list[dict[str, Any]] = []
+        for idx, pm_id in enumerate(ordered_pm_ids):
+            pm_row = pm_rows[pm_id]
+            semantic = float(semantic_scores[idx])
+            lexical = float(lexical_scores[idx])
+            structured = float(structured_scores[idx])
+            final = 0.55 * semantic + 0.25 * lexical + 0.20 * structured
+            top_terms = top_matching_terms(normalized_idea, docs[idx], k=5)
+            results.append(
+                {
+                    "pm_id": pm_id,
+                    "pm_name": str(pm_row["pm_name"]),
+                    "client_id": int(pm_row["client_id"]),
+                    "client_name": str(pm_row["client_name"]),
+                    "pm_score": round(final, 6),
+                    "semantic_score": round(semantic, 6),
+                    "lexical_score": round(lexical, 6),
+                    "structured_score": round(structured, 6),
+                    "top_terms": top_terms,
+                    "feature_evidence": {
+                        "region": candidate_meta[pm_id].get("matched_region"),
+                        "stage": candidate_meta[pm_id].get("stage"),
+                        "trade_count_sum": round(float(candidate_meta[pm_id].get("trade_count_sum", 0.0)), 4),
+                        "score_30d_sum": round(float(candidate_meta[pm_id].get("score_30d_sum", 0.0)), 4),
+                        "score_90d_sum": round(float(candidate_meta[pm_id].get("score_90d_sum", 0.0)), 4),
+                        "score_365d_sum": round(float(candidate_meta[pm_id].get("score_365d_sum", 0.0)), 4),
+                    },
+                    "explanation": (
+                        f"PM Semantic={semantic:.3f}, Lexical={lexical:.3f}, "
+                        f"Structured={structured:.3f}, Final={final:.3f}"
+                    ),
+                }
+            )
+        results.sort(key=lambda x: x["pm_score"], reverse=True)
+        return results[:top_n], meta
+
     def match_clients_for_idea(
         self,
         idea_text: str,
@@ -556,6 +841,19 @@ class ClientCategorizerService:
             cap=candidate_cap,
             fallback_min=fallback_min,
         )
+        pm_global_results: list[dict[str, Any]] = []
+        pm_global_meta: dict[str, Any] = {}
+        if include_pm:
+            pm_global_results, pm_global_meta = self.match_pms_for_idea(
+                idea_text=idea_text,
+                top_n=max(top_n, 25),
+                region=region,
+                country=country,
+                candidate_cap=candidate_cap,
+                fallback_min=fallback_min,
+            )
+            meta["pm_global_results"] = pm_global_results
+            meta["pm_global_meta"] = pm_global_meta
         candidate_ids = list(candidate_meta.keys())
         profiles = self._build_profiles_for_client_ids(candidate_ids)
         if not profiles:

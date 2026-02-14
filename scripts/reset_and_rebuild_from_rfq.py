@@ -66,7 +66,7 @@ def main() -> None:
     conn = initialize_database(str(db_path))
     conn.close()
 
-    rfq_stats = ingest_rfq_csv(Path(args.rfq_csv), db_path=str(db_path), clear_existing=True)
+    rfq_stats = ingest_rfq_csv(Path(args.rfq_csv), db_path=str(db_path))
     trade_stats = None
     pm_stats = None
 

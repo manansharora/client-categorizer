@@ -1,0 +1,9 @@
+Portfolio Manager,Client,Salesperson,Client Segment,Style,Example trade,Tags,Email,Ranking,Axes,CcyPair,productType,Client Region,clientregion,tenor_bucket,date
+Manu Kapoor,BREVAN HOWARD ASSET MANAGEMENT,Nicole Tay,HF,"Directional, short vol","AUDUSD/AUDJPY dual digital","digitals, correlation",manu.kapoor@example.com,3,Yes,EURUSD,DIGKNO,EUROPE,UNITED KINGDOM,1M-3M,2/08/2026
+Kevin Chen,CITADEL ADVISORS LLC,Nicole Tay,HF,"Correlation, vol RV","USDJPY risk reversal","risk reversal, correlation",kevin.chen@example.com,3,No,USDJPY,RKO,AMERICA,UNITED STATES,1W,2/09/2026
+Jordan Lew,BLACKROCK INSTITUTIONAL TRUST COMPANY,Shreya Chawla,RM,"Macro directional","USDCHF put spread","macro directional, downside hedge",jordan.lew@example.com,3,No,USDCHF,DKI,AMERICA,UNITED STATES,1W,2/06/2026
+Shawn Lin,GIC PRIVATE LIMITED,Nicole Tay,RM,"Macro directional","SDKRW digi put spread","asia macro, digitals",shawn.lin@example.com,4,No,USDKRW,WDIGKNO,APAC,SINGAPORE,1M-3M,2/05/2026
+Srini Ramadas,NORGES BANK INVESTMENT MANAGEMENT,Walter Wong,HF,"Convexity, Asia Macro","1y1y USDINR FVA","strikeless, convexity",srini.ramadas@example.com,4,No,USDJPY,VARSWAP,EUROPE,NORWAY,6M-1Y,2/03/2026
+Dora Gu,QATAR INVESTMENT AUTHORITY,Stephanie Hadi,Bank,"EM macro directional","USDTRY digital knock-out","emea, digitals",dora.gu@example.com,3,No,USDTRY,DIGKNO,CEEMEA,QATAR,2W-1M,2/07/2026
+Mayaank Kedia,ABU DHABI INVESTMENT AUTHORITY,Walter Wong,HF,"Vanillas, directional","USDZAR risk-reversal package","vanillas and digitals",mayaank.kedia@example.com,3,No,USDZAR,WDIGRKO,CEEMEA,UNITED ARAB EMIRATES,1M-3M,2/07/2026
+Ying Cheng,NATWEST MARKETS PLC,Dickson Ng,HF,"Directional, short vol","GBPUSD KIKO","short vol, directional",ying.cheng@example.com,3,No,GBPUSD,KIKO,EUROPE,UNITED KINGDOM,1M-3M,2/08/2026

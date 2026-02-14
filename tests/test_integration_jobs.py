@@ -266,3 +266,90 @@ def test_job_b_structured_signals_use_raw_idea_text(tmp_path) -> None:
     assert results[0]["target_name"] == "Risk Reversal Demo"
     assert str(meta["signals"]["ccy_pair"]) == "USDJPY"
     assert str(meta["signals"]["product_type"]) == "RKO"
+
+
+def test_job_b_returns_global_pm_matches_outside_top_clients(tmp_path) -> None:
+    db_path = tmp_path / "integration_global_pm.db"
+    conn = initialize_database(db_path)
+    repo = Repository(conn)
+    service = ClientCategorizerService(repo)
+
+    c1 = repo.create_client("Client Top", "HF_MACRO", 1)
+    c2 = repo.create_client("Client PMOnly", "HF_MACRO", 1)
+    repo.upsert_entity_profile_cache("CLIENT", c1, "USDJPY risk reversal")
+    repo.upsert_entity_profile_cache("CLIENT", c2, "Unrelated profile text")
+
+    today = date.today().isoformat()
+    repo.upsert_rfq_features_bulk(
+        [
+            (
+                "CLIENT",
+                c1,
+                "AMERICA",
+                "UNITED STATES",
+                "PAIR_PRODUCT",
+                "USDJPY",
+                "RKO",
+                None,
+                8,
+                50.0,
+                today,
+                4.0,
+                6.0,
+                8.0,
+                5.0,
+            ),
+            (
+                "CLIENT",
+                c2,
+                "AMERICA",
+                "UNITED STATES",
+                "PAIR_PRODUCT",
+                "EURUSD",
+                "DIG",
+                None,
+                2,
+                10.0,
+                today,
+                0.5,
+                0.8,
+                1.1,
+                0.6,
+            ),
+        ]
+    )
+
+    pm_id = repo.upsert_pm(c2, "PM Global", 1)
+    repo.upsert_entity_profile_cache("PM", pm_id, "USDJPY risk reversal short tenor")
+    repo.upsert_rfq_features_bulk(
+        [
+            (
+                "PM",
+                pm_id,
+                "AMERICA",
+                "UNITED STATES",
+                "PAIR_PRODUCT",
+                "USDJPY",
+                "RKO",
+                None,
+                6,
+                30.0,
+                today,
+                2.5,
+                4.0,
+                5.5,
+                3.5,
+            )
+        ]
+    )
+
+    _, results, meta = service.match_clients_for_idea(
+        idea_text="USD/JPY risk reversal 1W",
+        input_ref="test_global_pm",
+        top_n=1,
+        region="AMERICA",
+    )
+    assert len(results) == 1
+    assert results[0]["target_name"] == "Client Top"
+    assert "pm_global_results" in meta
+    assert any(row["pm_name"] == "PM Global" for row in meta["pm_global_results"])

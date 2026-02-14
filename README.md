@@ -67,7 +67,12 @@ python scripts/ingest_rfq_csv.py --csv path\to\rfq_file.csv
 
 Optional flags:
 - `--db path\to\db.sqlite`
-- `--append` to keep existing RFQ client aggregates and update in place.
+
+Notes:
+- If RFQ CSV includes `portfolioManager`, ingestion also upserts PM entities and PM RFQ aggregates.
+- PM profile cache is refreshed from RFQ feature phrases for those PMs.
+- RFQ ingestion is cumulative additive by default for overlapping aggregate keys.
+- Avoid re-ingesting the same RFQ file twice, or totals will double count.
 
 ## Ingest PM CSV
 Use a separate PM file with:
@@ -95,8 +100,8 @@ Sample PM file:
 ## Where PM Shows In Streamlit
 PMs are shown on:
 - `Match Clients for Idea`
-- Run a match, then open each client in the `Feedback` section expander.
-- You will see `PM drilldown` with `pm_name`, `pm_score`, semantic/lexical/structured components, and top terms.
+- `Top PM Matches (Region Filtered)` table appears above client results (independent of top client list).
+- Run a match, then open each client in the `Feedback` section expander for `PM drilldown` within that client.
 
 Quick local test flow:
 ```bash
