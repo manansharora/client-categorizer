@@ -636,6 +636,53 @@ class Repository:
         cur = self.conn.execute(sql, params)
         return cur.fetchall()
 
+    def list_pm_ids_for_region(
+        self,
+        region: str,
+        country: str | None = None,
+        active_only: bool = True,
+    ) -> set[int]:
+        conditions_pm_target = ["f.entity_type = 'PM'", "f.region = ?", "f.entity_id = p.pm_id"]
+        conditions_pm_any = ["f.entity_type = 'PM'", "f.entity_id = p.pm_id"]
+        conditions_client_target = ["f.entity_type = 'CLIENT'", "f.region = ?", "f.entity_id = p.client_id"]
+        params_pm_target: list[Any] = [region]
+        params_client_target: list[Any] = [region]
+        if country:
+            conditions_pm_target.append("f.country = ?")
+            conditions_client_target.append("f.country = ?")
+            params_pm_target.append(country)
+            params_client_target.append(country)
+
+        active_clause = "AND p.active_flag = 1" if active_only else ""
+        sql = f"""
+            SELECT DISTINCT p.pm_id
+            FROM client_pms p
+            WHERE 1=1
+              {active_clause}
+              AND (
+                  EXISTS (
+                      SELECT 1
+                      FROM rfq_entity_feature_agg f
+                      WHERE {' AND '.join(conditions_pm_target)}
+                  )
+                  OR (
+                      NOT EXISTS (
+                          SELECT 1
+                          FROM rfq_entity_feature_agg f
+                          WHERE {' AND '.join(conditions_pm_any)}
+                      )
+                      AND EXISTS (
+                          SELECT 1
+                          FROM rfq_entity_feature_agg f
+                          WHERE {' AND '.join(conditions_client_target)}
+                      )
+                  )
+              )
+        """
+        params: list[Any] = [*params_pm_target, *params_client_target]
+        cur = self.conn.execute(sql, params)
+        return {int(row["pm_id"]) for row in cur.fetchall()}
+
     def create_match_run(self, run_type: str, input_ref: str | None) -> int:
         cur = self.conn.execute(
             """

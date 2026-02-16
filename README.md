@@ -102,7 +102,7 @@ Sample PM file:
 PMs are shown on:
 - `Match Clients for Idea`
 - `Top PM Matches (Semantic, Independent of Client Ranking)` table appears above client results.
-- Global PM ranking is semantic-only and independent of which clients are in top-N.
+- Global PM ranking is semantic-only, independent of which clients are in top-N, and region/country gated.
 - Run a match, then open each client in the `Feedback` section expander for `PM drilldown` within that client.
 
 ## PM/RFQ Coverage Script

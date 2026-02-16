@@ -321,6 +321,48 @@ def test_job_b_returns_global_pm_matches_outside_top_clients(tmp_path) -> None:
 
     pm_id = repo.upsert_pm(c2, "PM Global", 1)
     repo.upsert_entity_profile_cache("PM", pm_id, "USDJPY risk reversal short tenor")
+    pm_client_derived_id = repo.upsert_pm(c2, "PM Client Derived", 1)
+    repo.upsert_entity_profile_cache("PM", pm_client_derived_id, "USDJPY risk reversal short tenor")
+    pm_other_region_id = repo.upsert_pm(c2, "PM Other Region", 1)
+    repo.upsert_entity_profile_cache("PM", pm_other_region_id, "USDJPY risk reversal short tenor")
+    repo.upsert_rfq_features_bulk(
+        [
+            (
+                "PM",
+                pm_id,
+                "AMERICA",
+                "UNITED STATES",
+                "PRODUCT",
+                None,
+                "DIG",
+                None,
+                1,
+                5.0,
+                today,
+                0.3,
+                0.4,
+                0.5,
+                0.35,
+            ),
+            (
+                "PM",
+                pm_other_region_id,
+                "EUROPE",
+                "UNITED KINGDOM",
+                "PRODUCT",
+                None,
+                "DIG",
+                None,
+                1,
+                5.0,
+                today,
+                0.3,
+                0.4,
+                0.5,
+                0.35,
+            ),
+        ]
+    )
     _, results, meta = service.match_clients_for_idea(
         idea_text="USD/JPY risk reversal 1W",
         input_ref="test_global_pm",
@@ -331,6 +373,8 @@ def test_job_b_returns_global_pm_matches_outside_top_clients(tmp_path) -> None:
     assert results[0]["target_name"] == "Client Top"
     assert "pm_global_results" in meta
     assert any(row["pm_name"] == "PM Global" for row in meta["pm_global_results"])
+    assert any(row["pm_name"] == "PM Client Derived" for row in meta["pm_global_results"])
+    assert all(row["pm_name"] != "PM Other Region" for row in meta["pm_global_results"])
     pm_global = next(row for row in meta["pm_global_results"] if row["pm_name"] == "PM Global")
     assert pm_global["structured_score"] == 0.0
-    assert "semantic-only global PM ranking" in pm_global["explanation"]
+    assert "semantic-only PM ranking within region filter" in pm_global["explanation"]

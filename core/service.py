@@ -751,22 +751,94 @@ class ClientCategorizerService:
         fallback_min: int = MATCH_CLIENT_FALLBACK_MIN,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         normalized_idea = self.normalize_text(idea_text)
-        _ = (candidate_cap, fallback_min)
-        pm_rows = [dict(p) for p in self.repo.list_pms(active_only=True)]
-        if not pm_rows:
+        signals = extract_structured_signals_from_text(idea_text)
+        target_region = (region or signals.get("region") or "EUROPE").upper()
+        target_country = (country or "").upper() or None
+        regions_to_try = [target_region]
+
+        all_pm_rows = [dict(p) for p in self.repo.list_pms(active_only=True)]
+        if not all_pm_rows:
             return (
                 [],
                 {
-                    "mode": "semantic_only",
+                    "mode": "semantic_region_filtered",
                     "pm_count_total": 0,
-                    "region_hint": (region or "").upper() or None,
-                    "country_hint": (country or "").upper() or None,
-                    "debug": [{"stage": "SEMANTIC_ALL", "row_count": 0}],
+                    "target_region": target_region,
+                    "target_country": target_country,
+                    "used_regions": [],
+                    "fallback_used": False,
+                    "debug": [{"stage": "REGION_GATE", "row_count": 0}],
                 },
             )
 
-        ordered_pm_ids = [int(pm["pm_id"]) for pm in pm_rows]
-        pm_by_id = {int(pm["pm_id"]): pm for pm in pm_rows}
+        pm_by_id = {int(pm["pm_id"]): pm for pm in all_pm_rows}
+        candidate_meta: dict[int, dict[str, Any]] = {}
+        debug_attempts: list[dict[str, Any]] = []
+        used_regions: list[str] = []
+
+        self.logger.info(
+            "pm_region_gate_start target_region=%s target_country=%s candidate_cap=%s strict_region_only=true",
+            target_region,
+            target_country,
+            candidate_cap,
+        )
+
+        for idx, reg in enumerate(regions_to_try):
+            strict = idx == 0
+            used_regions.append(reg)
+            strict_country = target_country if strict else None
+            pm_ids = self.repo.list_pm_ids_for_region(region=reg, country=strict_country, active_only=True)
+            row_count = 0
+            for pm_id in pm_ids:
+                if pm_id not in pm_by_id:
+                    continue
+                row_count += 1
+                payload = {
+                    "matched_region": reg,
+                    "strict_region": strict,
+                    "region_order": idx,
+                }
+                existing = candidate_meta.get(pm_id)
+                if existing is None or payload["region_order"] < int(existing["region_order"]):
+                    candidate_meta[pm_id] = payload
+            debug_attempts.append(
+                {
+                    "region": reg,
+                    "stage": "REGION_GATE",
+                    "strict_region": strict,
+                    "row_count": row_count,
+                    "country_filter": strict_country or "",
+                }
+            )
+        ordered_pm_ids = sorted(
+            candidate_meta.keys(),
+            key=lambda pm_id: (
+                int(candidate_meta[pm_id]["region_order"]),
+                str(pm_by_id[pm_id]["client_name"]).lower(),
+                str(pm_by_id[pm_id]["pm_name"]).lower(),
+                pm_id,
+            ),
+        )
+        if candidate_cap > 0 and len(ordered_pm_ids) > candidate_cap:
+            ordered_pm_ids = ordered_pm_ids[:candidate_cap]
+
+        if not ordered_pm_ids:
+            metadata = {
+                "mode": "semantic_region_filtered",
+                "pm_count_total": len(all_pm_rows),
+                "target_region": target_region,
+                "target_country": target_country,
+                "used_regions": used_regions,
+                "fallback_used": False,
+                "debug": debug_attempts,
+                "empty_reason": (
+                    "No PM candidates mapped to the selected region/country from RFQ features. "
+                    "Ensure PM/client RFQ region features exist for this region."
+                ),
+            }
+            self.logger.warning("pm_region_gate_empty metadata=%s", metadata)
+            return [], metadata
+
         docs = []
         for pm_id in ordered_pm_ids:
             profile_text = self._pm_profile_text(pm_id).strip()
@@ -804,30 +876,35 @@ class ClientCategorizerService:
                     "structured_score": round(structured, 6),
                     "top_terms": top_terms,
                     "feature_evidence": {
-                        "mode": "semantic_only",
-                        "region_hint": (region or "").upper() or "",
-                        "country_hint": (country or "").upper() or "",
+                        "mode": "semantic_region_filtered",
+                        "region": str(candidate_meta[pm_id]["matched_region"]),
+                        "strict_region": bool(candidate_meta[pm_id]["strict_region"]),
+                        "target_region": target_region,
+                        "target_country": target_country or "",
                     },
                     "explanation": (
                         f"PM Semantic={semantic:.3f}, Lexical={lexical:.3f}, "
-                        f"Final={final:.3f} (semantic-only global PM ranking)"
+                        f"Final={final:.3f} (semantic-only PM ranking within region filter)"
                     ),
                 }
             )
         results.sort(key=lambda x: x["pm_score"], reverse=True)
         metadata = {
-            "mode": "semantic_only",
-            "pm_count_total": len(pm_rows),
-            "region_hint": (region or "").upper() or None,
-            "country_hint": (country or "").upper() or None,
-            "debug": [{"stage": "SEMANTIC_ALL", "row_count": len(pm_rows)}],
+            "mode": "semantic_region_filtered",
+            "pm_count_total": len(all_pm_rows),
+            "pm_candidates_region_gated": len(ordered_pm_ids),
+            "target_region": target_region,
+            "target_country": target_country,
+            "used_regions": used_regions,
+            "fallback_used": False,
+            "debug": debug_attempts,
         }
         self.logger.info(
-            "match_pms_semantic_done candidates=%s returned=%s region_hint=%s country_hint=%s",
-            len(pm_rows),
+            "match_pms_semantic_done candidates=%s returned=%s target_region=%s target_country=%s",
+            len(ordered_pm_ids),
             min(top_n, len(results)),
-            metadata["region_hint"],
-            metadata["country_hint"],
+            metadata["target_region"],
+            metadata["target_country"],
         )
         return results[:top_n], metadata
 

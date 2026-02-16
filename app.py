@@ -412,7 +412,7 @@ def page_match_clients_for_idea() -> None:
                     }
                 )
         if pm_global_rows:
-            st.subheader("Top PM Matches (Semantic, Independent of Client Ranking)")
+            st.subheader("Top PM Matches (Semantic, Region Filtered, Independent of Client Ranking)")
             st.dataframe(pd.DataFrame(pm_global_rows), width="stretch")
         table_rows = [
             {
