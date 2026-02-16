@@ -25,6 +25,7 @@ Streamlit + SQLite MVP for semantic matching of ideas.
 - `scripts/init_db.py`: initialize and seed DB
 - `scripts/ingest_rfq_csv.py`: ingest RFQ CSV into aggregate feature store
 - `scripts/ingest_pm_csv.py`: ingest PM sheet into PM entities + PM semantic profiles
+- `scripts/pm_rfq_coverage.py`: report PM coverage from PM file against RFQ file
 - `scripts/reset_and_rebuild_from_rfq.py`: one-shot reset and rebuild workflow
 - `tests/`: unit and integration tests
 
@@ -100,8 +101,22 @@ Sample PM file:
 ## Where PM Shows In Streamlit
 PMs are shown on:
 - `Match Clients for Idea`
-- `Top PM Matches (Region Filtered)` table appears above client results (independent of top client list).
+- `Top PM Matches (Semantic, Independent of Client Ranking)` table appears above client results.
+- Global PM ranking is semantic-only and independent of which clients are in top-N.
 - Run a match, then open each client in the `Feedback` section expander for `PM drilldown` within that client.
+
+## PM/RFQ Coverage Script
+Use this to quickly measure how many PMs in your PM file have any RFQ association:
+
+```bash
+python scripts/pm_rfq_coverage.py --pm-csv path\to\PM_data.csv --rfq-csv path\to\rfq_file.csv
+```
+
+Notes:
+- Name matching is normalized and case-insensitive.
+- Output includes both:
+- PM-name coverage (PM appears in RFQ at least once)
+- PM+Client pair coverage (stricter check)
 
 Quick local test flow:
 ```bash

@@ -321,28 +321,6 @@ def test_job_b_returns_global_pm_matches_outside_top_clients(tmp_path) -> None:
 
     pm_id = repo.upsert_pm(c2, "PM Global", 1)
     repo.upsert_entity_profile_cache("PM", pm_id, "USDJPY risk reversal short tenor")
-    repo.upsert_rfq_features_bulk(
-        [
-            (
-                "PM",
-                pm_id,
-                "AMERICA",
-                "UNITED STATES",
-                "PAIR_PRODUCT",
-                "USDJPY",
-                "RKO",
-                None,
-                6,
-                30.0,
-                today,
-                2.5,
-                4.0,
-                5.5,
-                3.5,
-            )
-        ]
-    )
-
     _, results, meta = service.match_clients_for_idea(
         idea_text="USD/JPY risk reversal 1W",
         input_ref="test_global_pm",
@@ -353,3 +331,6 @@ def test_job_b_returns_global_pm_matches_outside_top_clients(tmp_path) -> None:
     assert results[0]["target_name"] == "Client Top"
     assert "pm_global_results" in meta
     assert any(row["pm_name"] == "PM Global" for row in meta["pm_global_results"])
+    pm_global = next(row for row in meta["pm_global_results"] if row["pm_name"] == "PM Global")
+    assert pm_global["structured_score"] == 0.0
+    assert "semantic-only global PM ranking" in pm_global["explanation"]

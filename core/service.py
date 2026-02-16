@@ -751,23 +751,28 @@ class ClientCategorizerService:
         fallback_min: int = MATCH_CLIENT_FALLBACK_MIN,
     ) -> tuple[list[dict[str, Any]], dict[str, Any]]:
         normalized_idea = self.normalize_text(idea_text)
-        candidate_meta, meta = self._candidate_pms(
-            idea_text=idea_text,
-            region=region,
-            country=country,
-            cap=candidate_cap,
-            fallback_min=fallback_min,
-        )
-        pm_ids = list(candidate_meta.keys())
-        if not pm_ids:
-            return [], meta
+        _ = (candidate_cap, fallback_min)
+        pm_rows = [dict(p) for p in self.repo.list_pms(active_only=True)]
+        if not pm_rows:
+            return (
+                [],
+                {
+                    "mode": "semantic_only",
+                    "pm_count_total": 0,
+                    "region_hint": (region or "").upper() or None,
+                    "country_hint": (country or "").upper() or None,
+                    "debug": [{"stage": "SEMANTIC_ALL", "row_count": 0}],
+                },
+            )
 
-        pm_rows = {int(p["pm_id"]): dict(p) for p in self.repo.list_pms_by_ids(pm_ids)}
-        ordered_pm_ids = [pm_id for pm_id in pm_ids if pm_id in pm_rows]
-        if not ordered_pm_ids:
-            return [], meta
-
-        docs = [self._pm_profile_text(pm_id) for pm_id in ordered_pm_ids]
+        ordered_pm_ids = [int(pm["pm_id"]) for pm in pm_rows]
+        pm_by_id = {int(pm["pm_id"]): pm for pm in pm_rows}
+        docs = []
+        for pm_id in ordered_pm_ids:
+            profile_text = self._pm_profile_text(pm_id).strip()
+            if not profile_text:
+                profile_text = self.normalize_text(str(pm_by_id[pm_id]["pm_name"]))
+            docs.append(profile_text)
         lexical_scores = bm25_score_documents(normalized_idea, docs)
         embedder = FastTextEmbedder()
         embedder.fit([normalized_idea] + docs)
@@ -779,16 +784,13 @@ class ClientCategorizerService:
             semantic_raw.append(float((query_vec @ vec) / denom if denom > 0 else 0.0))
         semantic_scores = min_max_scale(semantic_raw)
 
-        structured_raw = [float(candidate_meta[pm_id]["structured_raw"]) for pm_id in ordered_pm_ids]
-        structured_scores = min_max_scale(structured_raw)
-
         results: list[dict[str, Any]] = []
         for idx, pm_id in enumerate(ordered_pm_ids):
-            pm_row = pm_rows[pm_id]
+            pm_row = pm_by_id[pm_id]
             semantic = float(semantic_scores[idx])
             lexical = float(lexical_scores[idx])
-            structured = float(structured_scores[idx])
-            final = 0.55 * semantic + 0.25 * lexical + 0.20 * structured
+            structured = 0.0
+            final = 0.70 * semantic + 0.30 * lexical
             top_terms = top_matching_terms(normalized_idea, docs[idx], k=5)
             results.append(
                 {
@@ -802,21 +804,32 @@ class ClientCategorizerService:
                     "structured_score": round(structured, 6),
                     "top_terms": top_terms,
                     "feature_evidence": {
-                        "region": candidate_meta[pm_id].get("matched_region"),
-                        "stage": candidate_meta[pm_id].get("stage"),
-                        "trade_count_sum": round(float(candidate_meta[pm_id].get("trade_count_sum", 0.0)), 4),
-                        "score_30d_sum": round(float(candidate_meta[pm_id].get("score_30d_sum", 0.0)), 4),
-                        "score_90d_sum": round(float(candidate_meta[pm_id].get("score_90d_sum", 0.0)), 4),
-                        "score_365d_sum": round(float(candidate_meta[pm_id].get("score_365d_sum", 0.0)), 4),
+                        "mode": "semantic_only",
+                        "region_hint": (region or "").upper() or "",
+                        "country_hint": (country or "").upper() or "",
                     },
                     "explanation": (
                         f"PM Semantic={semantic:.3f}, Lexical={lexical:.3f}, "
-                        f"Structured={structured:.3f}, Final={final:.3f}"
+                        f"Final={final:.3f} (semantic-only global PM ranking)"
                     ),
                 }
             )
         results.sort(key=lambda x: x["pm_score"], reverse=True)
-        return results[:top_n], meta
+        metadata = {
+            "mode": "semantic_only",
+            "pm_count_total": len(pm_rows),
+            "region_hint": (region or "").upper() or None,
+            "country_hint": (country or "").upper() or None,
+            "debug": [{"stage": "SEMANTIC_ALL", "row_count": len(pm_rows)}],
+        }
+        self.logger.info(
+            "match_pms_semantic_done candidates=%s returned=%s region_hint=%s country_hint=%s",
+            len(pm_rows),
+            min(top_n, len(results)),
+            metadata["region_hint"],
+            metadata["country_hint"],
+        )
+        return results[:top_n], metadata
 
     def match_clients_for_idea(
         self,
